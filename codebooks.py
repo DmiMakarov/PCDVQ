@@ -5,17 +5,20 @@ import scipy.special
 import torch
 from scipy import stats
 
+import logging
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 class Codebook:
-    def __init__(self, direction_bits:int = 12, magnitude_bits:int = 2):
+    def __init__(self, direction_bits:int = 16, magnitude_bits:int = 2):
+        """Initialize the codebook."""
         self.direction_bits = direction_bits
         self.magnitude_bits = magnitude_bits
-        self.e8_basis = self._generate_e8_roots()
 
-        self.codebook_magnitude = torch.randn(2**magnitude_bits, 8)
-        self.codebook_direction = torch.randn(2**direction_bits, 8)
+        self.codebook_magnitude = torch.randn(2**magnitude_bits)
+        self.codebook_direction = torch.randn(2**direction_bits, 7)
 
-    def _generate_d8_half_vectors(max_sq_norm: float = 10.0) -> torch.Tensor:
+    def _generate_d8_half_vectors(self,max_sq_norm: float = 10.0) -> torch.Tensor:
         """Return a tensor of shape (227, 8) containing all vectors from E8 with norm less than max_sq_norm."""
         vectors = []
 
@@ -36,7 +39,7 @@ class Codebook:
 
     def _generate_12(self)->torch.Tensor:
         """Generate the 12 for the d8 half vectors."""
-        additional = torch.tensor([[3, 1, 1, 1, 3, 3, 3, 3], [1, 3, 1, 1, 3, 3, 3, 3], [1, 1, 3, 1, 3, 3, 3, 3],
+        return torch.tensor([[3, 1, 1, 1, 3, 3, 3, 3], [1, 3, 1, 1, 3, 3, 3, 3], [1, 1, 3, 1, 3, 3, 3, 3],
                                [1, 1, 1, 3, 3, 3, 3, 3], [3, 3, 3, 1, 3, 3, 1, 1], [3, 3, 3, 1, 3, 1, 3, 1],
                                [3, 3, 3, 1, 1, 3, 3, 1], [3, 3, 3, 1, 3, 1, 1, 3], [3, 3, 3, 1, 1, 3, 1, 3],
                                [3, 3, 3, 1, 1, 1, 3, 3], [3, 3, 1, 3, 3, 3, 1, 1], [3, 3, 1, 3, 3, 1, 3, 1],
@@ -47,8 +50,6 @@ class Codebook:
                                [1, 3, 3, 3, 1, 3, 3, 1], [1, 3, 3, 3, 3, 1, 1, 3], [1, 3, 3, 3, 1, 3, 1, 3],
                                [1, 1, 3, 3, 1, 3, 3, 3], [3, 3, 1, 1, 3, 3, 3, 1]]) / 2
 
-
-        return additional
 
     def _generate_d8_signs(self,d8_half_vectors:torch.Tensor)->torch.Tensor:
         """Generate the signs for the d8 half vectors."""
@@ -81,19 +82,24 @@ class Codebook:
 
     def construct_direction_codebooks(self)->list[torch.Tensor]:
         """Construct the direction codebooks for the codebook."""
+        logger.info("Constructing direction codebooks...")
         d8_half_vectors = self._generate_d8_half_vectors()
+        logger.info("Generated d8 half vectors...")
         additional = self._generate_12()
+        logger.info("Generating additional vectors...")
         d8_full = torch.cat([d8_half_vectors, additional], dim=0)
         d8_signs = self._generate_d8_signs(d8_full)
 
+        logger.info("Generating direction vectors...")
         self.codebook_direction = self._get_direction_from_vectors(torch.cat([d8_signs, d8_signs + 0.25], dim=0))
+        logger.info("Constructed direction codebooks successfully")
 
     def find_max_r_bisection(self, k:int, tau:float, eps:float = 1e-8)->float:
         """Find the max r for the codebook using bisection from chi2 distribution."""
-        upper_bound = 2 * torch.sqrt(k).item()
+        upper_bound = 2 * np.sqrt(k)
         lower_bound = 0.0
 
-        while torch.abs(upper_bound - lower_bound) > eps:
+        while np.abs(upper_bound - lower_bound) > eps:
 
             mid = (upper_bound + lower_bound) / 2
             p = stats.chi2.cdf(mid**2, df=k)
@@ -104,13 +110,16 @@ class Codebook:
 
         return upper_bound
 
-    def construct_magnitude_codebook(self, bits_for_magnitude:int, k:int, tau:float, tol:float = 1e-8, max_iters:int = 100)->torch.Tensor:
+    def construct_magnitude_codebook(self, k:int = 8, tau:float = 0.99, tol:float = 1e-8, max_iters:int = 100)->torch.Tensor:
         """Construct the magnitude codebook using bisection from chi2 distribution."""
-        num_centers = 2 ** bits_for_magnitude
+        num_centers = 2 ** self.magnitude_bits
+        logger.info(f"Constructing magnitude codebook with {num_centers} centers...")
         max_r = self.find_max_r_bisection(k, tau)
+        logger.info(f"Found max r: {max_r}")
         codebook = torch.linspace(0, max_r, num_centers + 1)
         codebook = 0.5 * (codebook[:-1] + codebook[1:])
         for _ in range(max_iters):
+            logger.info(f"Iteration {_} of {max_iters}...")
             u = torch.empty(num_centers + 1)
             u[0] = 0.0
             u[-1] = max_r
@@ -125,9 +134,11 @@ class Codebook:
                 codebook_tmp[i] = cur
 
             codebook = codebook_tmp
-
+            logger.info(f"Current max loss: {max_loss}")
             if max_loss < tol:
                 break
+
+        logger.info(f"Constructed magnitude codebook with {num_centers} centers successfully")
 
         self.codebook_magnitude = codebook
 
@@ -146,3 +157,10 @@ class Codebook:
         """Load the codebooks from a file."""
         self.codebook_direction = torch.load(path + "codebook_direction.pt")
         self.codebook_magnitude = torch.load(path + "codebook_magnitude.pt")
+
+
+if __name__ == "__main__":
+    codebook = Codebook()
+    codebook.construct_direction_codebooks()
+    codebook.construct_magnitude_codebooks()
+    codebook.save_codebooks()
