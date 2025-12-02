@@ -23,7 +23,7 @@ codebook.load_codebooks()
 quantizer = Quantizer(codebook)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model_name", type=str, default="Qwen/Qwen3-4B",
+parser.add_argument("--model_name", type=str, default="Qwen/Qwen3-8B",
                         help="model id")
 parser.add_argument("--dataset_name", type=str, default="wikitext",
                         help="dataset name")
