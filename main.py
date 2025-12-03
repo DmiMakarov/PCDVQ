@@ -28,7 +28,7 @@ def check_number_of_linear(module):
             global number_of_linear
             number_of_linear += 1
         else:
-            quantize_linear_inplace(child)
+            check_number_of_linear(child)
 
 codebook = Codebook()
 codebook.load_codebooks()
