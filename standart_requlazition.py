@@ -4,7 +4,6 @@ from math import sqrt
 import torch
 import torch.nn.functional as F
 
-
 class StandardRegularization(ABC):
     """
     Abstract base for regularization/transformation blocks applied to tensors.

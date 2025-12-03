@@ -1,6 +1,6 @@
 from codebooks import Codebook
-from qunatizer import Quantizer
-from qunatizer import quantize_linear_inplace
+from quantizer import Quantizer
+from quantizer import quantize_linear_inplace
 
 import argparse
 from pathlib import Path

@@ -80,7 +80,7 @@ class Codebook:
 
         return torch.tensor(directions)
 
-    def construct_direction_codebooks(self)->list[torch.Tensor]:
+    def construct_direction_codebook(self)->list[torch.Tensor]:
         """Construct the direction codebooks for the codebook."""
         logger.info("Constructing direction codebooks...")
         d8_half_vectors = self._generate_d8_half_vectors()
@@ -142,12 +142,6 @@ class Codebook:
 
         self.codebook_magnitude = codebook
 
-    def construct_magnitude_codebooks(self)->list[torch.Tensor]:
-        """Construct the magnitude codebooks for the codebook."""
-        num_centers = 2 ** self.magnitude_bits
-        max_r = self.find_max_r_bisection(num_centers, 0.99)
-        codebook = torch.linspace(0, max_r, num_centers + 1)
-
     def save_codebooks(self, path: str = ""):
         """Save the codebooks to a file."""
         torch.save(self.codebook_direction, path + "codebook_direction.pt")
@@ -161,6 +155,6 @@ class Codebook:
 
 if __name__ == "__main__":
     codebook = Codebook()
-    codebook.construct_direction_codebooks()
-    codebook.construct_magnitude_codebooks()
+    codebook.construct_direction_codebook()
+    codebook.construct_magnitude_codebook()
     codebook.save_codebooks()

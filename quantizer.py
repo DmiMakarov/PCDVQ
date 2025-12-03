@@ -86,8 +86,8 @@ class Quantizer:
         """Quantize the input tensor.  Return indicies of the codebooks, original mean and std."""
         device = weights.device
         dtype = weights.dtype
-        randomized_hadamard = RandomizedHadamard(weights.shape[0], device=device, dtype=dtype)
         reshaped_weights = self.reshape_weights(weights)
+        randomized_hadamard = RandomizedHadamard(reshaped_weights.shape[0], device=device, dtype=dtype)
         standardized_weights = randomized_hadamard.forward(reshaped_weights)
 
         phis, magnitudes = self.to_polar(standardized_weights)
@@ -95,6 +95,7 @@ class Quantizer:
         C_phis = self.codebook.codebook_direction.to(device=device, dtype=dtype)
         C_magnitudes = self.codebook.codebook_magnitude.to(device=device, dtype=dtype)
         z = torch.nn.functional.normalize(phis, dim=-1)
+
         Z = torch.nn.functional.normalize(C_phis, dim=-1)
         sim = z @ Z.T
         idx_dir = sim.argmax(dim=1)
@@ -103,10 +104,12 @@ class Quantizer:
         idx_rad = d.argmin(dim=1)
 
         phis_q = C_phis[idx_dir]
+
         r_q = C_magnitudes[idx_rad].unsqueeze(1)
 
         weights_q = self.to_cartesian(phis_q, r_q)
         unnormalized_weights_q = randomized_hadamard.reverse(weights_q)
+
         unreshaped_weights_q = self.unreshape_weights(unnormalized_weights_q, weights.shape[0], weights.shape[1])
 
         return unreshaped_weights_q
