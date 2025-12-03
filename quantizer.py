@@ -97,7 +97,7 @@ class Quantizer:
         C_phis = self.codebook.codebook_direction.to(device=device, dtype=dtype)
         C_magnitudes = self.codebook.codebook_magnitude.to(device=device, dtype=dtype)
 
-        idx_dir = find_best_index(phis, C_phis)
+        idx_dir = find_best_index_chunk(phis, C_phis)
         d = (magnitudes.view(-1, 1) - C_magnitudes.view(1, -1)).abs()
         idx_rad = d.argmin(dim=1)
 
