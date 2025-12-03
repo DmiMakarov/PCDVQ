@@ -82,7 +82,7 @@ class Quantizer:
         return x
 
 
-    def quantize_inplace(self, weights:torch.Tensor)->torch.Tensor:
+    def quantize_inplace(self, weights:torch.Tensor, chunk_size=512)->torch.Tensor:
         """Quantize the input tensor.  Return indicies of the codebooks, original mean and std."""
         device = weights.device
         dtype = weights.dtype
@@ -94,12 +94,8 @@ class Quantizer:
 
         C_phis = self.codebook.codebook_direction.to(device=device, dtype=dtype)
         C_magnitudes = self.codebook.codebook_magnitude.to(device=device, dtype=dtype)
-        z = torch.nn.functional.normalize(phis, dim=-1)
 
-        Z = torch.nn.functional.normalize(C_phis, dim=-1)
-        sim = z @ Z.T
-        idx_dir = sim.argmax(dim=1)
-
+        idx_dir = find_best_index(phis, C_phis)
         d = (magnitudes.view(-1, 1) - C_magnitudes.view(1, -1)).abs()
         idx_rad = d.argmin(dim=1)
 
@@ -114,6 +110,23 @@ class Quantizer:
 
         return unreshaped_weights_q
 
+def find_best_index(phis: torch.Tensor, C_phis: torch.Tensor)->torch.Tensor:
+    best_idxs = []
+
+    for i in range(phis.shape[0]):
+        best_idx = None
+        best_sim = None
+
+        for j in range(C_phis.shape[0]):
+            sim = torch.dot(phis[i], C_phis[j])
+
+            if best_sim is None or sim > best_sim:
+                best_sim = sim
+                best_idx = j
+
+        best_idxs.append(best_idx)
+
+    return torch.tensor(best_idxs)
 
 def quantize_linear_inplace(module, *, quantizer: Quantizer):
     """Quantize each linear layer in the input module inplace."""
