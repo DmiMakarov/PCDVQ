@@ -137,7 +137,7 @@ def find_best_index_chunk(phis: torch.Tensor, C_phis: torch.Tensor, chunk_size: 
     best_sim = None                  # [N]
     best_idx = torch.empty(N, dtype=torch.long, device=phis.device)
 
-    for start in range(0, M, chunk_size):
+    for start in tqdm(range(0, M, chunk_size)):
         end = min(start + chunk_size, M)
         Z_chunk = C_phis[start:end]       # [C, D]
 
