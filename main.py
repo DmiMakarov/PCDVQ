@@ -14,6 +14,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from lm_eval import evaluator
 from lm_eval.tasks import TaskManager
 from lm_eval.models.huggingface import HFLM
+from lm_eval.utils import make_table
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ results = evaluator.simple_evaluate(
         task_manager=tm,
 )
 
-print(evaluator.make_table(results))
+print(make_table(results))
 
 #model.save_pretrained(save_path)
 #tokenizer.save_pretrained(save_path)
