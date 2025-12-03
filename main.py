@@ -19,6 +19,17 @@ from lm_eval.utils import make_table
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+number_of_linear = 0
+
+def check_number_of_linear(module):
+    """Quantize each linear layer in the input module inplace."""
+    for _, child in list(module.named_children()):
+        if isinstance(child, torch.nn.Linear):
+            global number_of_linear
+            number_of_linear += 1
+        else:
+            quantize_linear_inplace(child)
+
 codebook = Codebook()
 codebook.load_codebooks()
 
@@ -62,6 +73,11 @@ model = AutoModelForCausalLM.from_pretrained(
         trust_remote_code=args.trust_remote_code,
 )
 model.eval()
+
+check_number_of_linear(model)
+
+logger.info(f"Number of linear layers: {number_of_linear}")
+
 dataset = load_dataset(args.dataset_name, args.dataset_config, split=args.split)
 texts = [text for text in dataset["text"] if isinstance(text, str) and text.strip() != ""]
 
@@ -114,3 +130,6 @@ print(make_table(results))
 
 #with open("results.json", "w") as f:
 #    json.dump(results, f)
+
+
+
