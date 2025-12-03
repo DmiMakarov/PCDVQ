@@ -4,6 +4,8 @@ import torch
 from codebooks import Codebook
 from standart_requlazition import RandomizedHadamard
 
+from tqdm import tqdm
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 class Quantizer:
@@ -127,6 +129,33 @@ def find_best_index(phis: torch.Tensor, C_phis: torch.Tensor)->torch.Tensor:
         best_idxs.append(best_idx)
 
     return torch.tensor(best_idxs)
+
+def find_best_index_chunk(phis: torch.Tensor, C_phis: torch.Tensor, chunk_size: int=512)->torch.Tensor:
+    N = phis.shape[0]
+    M = C_phis.shape[0]
+
+    best_sim = None                  # [N]
+    best_idx = torch.empty(N, dtype=torch.long, device=phis.device)
+
+    for start in range(0, M, chunk_size):
+        end = min(start + chunk_size, M)
+        Z_chunk = C_phis[start:end]       # [C, D]
+
+        # [N, C] similarities for this chunk
+        sim_chunk = phis @ Z_chunk.T
+
+        # best inside this chunk
+        sim_vals, idx_chunk = sim_chunk.max(dim=1)  # [N], [N]
+
+        if best_sim is None:
+            best_sim = sim_vals
+            best_idx = start + idx_chunk
+        else:
+            better = sim_vals > best_sim
+            best_idx[better] = start + idx_chunk[better]
+            best_sim[better] = sim_vals[better]
+
+    return best_idx
 
 def quantize_linear_inplace(module, *, quantizer: Quantizer):
     """Quantize each linear layer in the input module inplace."""
