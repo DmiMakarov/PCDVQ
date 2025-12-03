@@ -6,13 +6,14 @@ import argparse
 from pathlib import Path
 import logging
 import torch
-import evaluate
+#import evaluate
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
-import json
+#import json
 
-from lm_eval import evaluator, task_registry
-from lm_eval.models.hf import HFLM
+from lm_eval import evaluator
+from lm_eval.tasks import TaskManager
+from lm_eval.models.huggingface import HFLM
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ parser.add_argument("--save_path", type=str, default=None,
                         help="save path for quantized model")
 parser.add_argument("--batch_size", type=int, default=8,
                         help="batch size")
-parser.add_argument("--device", type=str, default='gpu',
+parser.add_argument("--device", type=str, default='cuda',
                         help="device")
 args = parser.parse_args()
 
@@ -88,9 +89,9 @@ m = HFLM(
         trust_remote_code=True,
     )
 
-tm = task_registry.TaskManager()
+tm = TaskManager()
 results = evaluator.simple_evaluate(
-        model=model,
+        model=m,
         tasks=TASKS,
         task_manager=tm,
 )

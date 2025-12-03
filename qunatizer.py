@@ -1,7 +1,7 @@
 import logging
 import math
 import torch
-from codebook import Codebook
+from codebooks import Codebook
 from standart_requlazition import RandomizedHadamard
 
 logging.basicConfig(level=logging.INFO)
