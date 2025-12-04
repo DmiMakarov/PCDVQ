@@ -84,10 +84,12 @@ class Quantizer:
         return x
 
 
-    def quantize_inplace(self, weights:torch.Tensor, chunk_size=512)->torch.Tensor:
+    def quantize_inplace(self, weights:torch.Tensor, chunk_size: int = 1024, phi_chunk_size: int = 1024)->torch.Tensor:
         """Quantize the input tensor.  Return indicies of the codebooks, original mean and std."""
         device = weights.device
         dtype = weights.dtype
+
+        logger.info(f"Quantizing weights of shape {weights.shape} with device {device} and dtype {dtype}")
         reshaped_weights = self.reshape_weights(weights)
         randomized_hadamard = RandomizedHadamard(reshaped_weights.shape[0], device=device, dtype=dtype)
         standardized_weights = randomized_hadamard.forward(reshaped_weights)
@@ -97,74 +99,88 @@ class Quantizer:
         C_phis = self.codebook.codebook_direction.to(device=device, dtype=dtype)
         C_magnitudes = self.codebook.codebook_magnitude.to(device=device, dtype=dtype)
 
-        idx_dir = find_best_index_chunk(phis, C_phis)
+        logger.info(
+            f"Quantization shapes - phis: {phis.shape}, C_phis: {C_phis.shape}, "
+            f"magnitudes: {magnitudes.shape}, C_magnitudes: {C_magnitudes.shape}, "
+            f"chunk_size: {chunk_size}, phi_chunk_size: {phi_chunk_size}"
+        )
+
+        idx_dir = find_best_index_chunk(
+            phis,
+            C_phis,
+            chunk_size=chunk_size,
+            phi_chunk_size=phi_chunk_size,
+        )
+
         d = (magnitudes.view(-1, 1) - C_magnitudes.view(1, -1)).abs()
         idx_rad = d.argmin(dim=1)
 
-        phis_q = C_phis[idx_dir]
-
-        r_q = C_magnitudes[idx_rad].unsqueeze(1)
-
-        weights_q = self.to_cartesian(phis_q, r_q)
+        weights_q = self.to_cartesian(C_phis[idx_dir], C_magnitudes[idx_rad].unsqueeze(1))
         unnormalized_weights_q = randomized_hadamard.reverse(weights_q)
 
         unreshaped_weights_q = self.unreshape_weights(unnormalized_weights_q, weights.shape[0], weights.shape[1])
 
         return unreshaped_weights_q
 
-def find_best_index(phis: torch.Tensor, C_phis: torch.Tensor)->torch.Tensor:
-    best_idxs = []
+def find_best_index_chunk(
+    phis: torch.Tensor,
+    C_phis: torch.Tensor,
+    chunk_size: int = 512,
+    phi_chunk_size: int = 1024,
+) -> torch.Tensor:
+    """
+    Find best matching indices in C_phis for each row in phis.
 
-    for i in range(phis.shape[0]):
-        best_idx = None
-        best_sim = None
-
-        for j in range(C_phis.shape[0]):
-            sim = torch.dot(phis[i], C_phis[j])
-
-            if best_sim is None or sim > best_sim:
-                best_sim = sim
-                best_idx = j
-
-        best_idxs.append(best_idx)
-
-    return torch.tensor(best_idxs)
-
-def find_best_index_chunk(phis: torch.Tensor, C_phis: torch.Tensor, chunk_size: int=512)->torch.Tensor:
+    This function chunks over BOTH:
+      - rows of phis (size N) with phi_chunk_size, and
+      - rows of C_phis (size M) with chunk_size,
+    so the largest similarity tensor in memory is only
+    [phi_chunk_size, chunk_size].
+    """
     N = phis.shape[0]
     M = C_phis.shape[0]
 
-    best_sim = None                  # [N]
     best_idx = torch.empty(N, dtype=torch.long, device=phis.device)
 
-    for start in tqdm(range(0, M, chunk_size)):
-        end = min(start + chunk_size, M)
-        Z_chunk = C_phis[start:end]       # [C, D]
+    for n_start in tqdm(range(0, N, phi_chunk_size), desc="phi chunks"):
+        n_end = min(n_start + phi_chunk_size, N)
 
-        # [N, C] similarities for this chunk
-        sim_chunk = phis @ Z_chunk.T
+        best_sim_chunk = None
+        best_idx_chunk = None
 
-        # best inside this chunk
-        sim_vals, idx_chunk = sim_chunk.max(dim=1)  # [N], [N]
+        for m_start in range(0, M, chunk_size):
+            m_end = min(m_start + chunk_size, M)
+            Z_chunk = C_phis[m_start:m_end]  # [C, D]
 
-        if best_sim is None:
-            best_sim = sim_vals
-            best_idx = start + idx_chunk
-        else:
-            better = sim_vals > best_sim
-            best_idx[better] = start + idx_chunk[better]
-            best_sim[better] = sim_vals[better]
+            # [B, C] similarities for this (phis, C_phis) chunk
+            sim_chunk = phis[n_start:n_end] @ C_phis[m_start:m_end].T
+
+            # best inside this codebook chunk
+            sim_vals, idx_local = sim_chunk.max(dim=1)  # [B], [B]
+
+            if best_sim_chunk is None:
+                best_sim_chunk = sim_vals
+                best_idx_chunk = m_start + idx_local
+            else:
+                better = sim_vals > best_sim_chunk
+                best_idx_chunk[better] = m_start + idx_local[better]
+                best_sim_chunk[better] = sim_vals[better]
+
+        best_idx[n_start:n_end] = best_idx_chunk
 
     return best_idx
 
-def quantize_linear_inplace(module, *, quantizer: Quantizer):
+
+
+
+@torch.no_grad()
+def quantize_linear_inplace(module, *, quantizer: Quantizer, chunk_size=512, phi_chunk_size: int = 1024):
     """Quantize each linear layer in the input module inplace."""
     logger.info("Quantizing linear layers with PCDVQ...")
     for _, child in list(module.named_children()):
         if isinstance(child, torch.nn.Linear):
-            with torch.no_grad():
-                W = child.weight.data.detach().to("cpu")
-                Wq = quantizer.quantize_inplace(W).to(device=child.weight.device, dtype=child.weight.dtype)
-                child.weight.data.copy_(Wq)
+            W = child.weight.detach().clone()
+            Wq = quantizer.quantize_inplace(W, chunk_size=chunk_size, phi_chunk_size=phi_chunk_size)
+            child.weight.copy_(Wq)
         else:
-            quantize_linear_inplace(child, quantizer=quantizer)
+            quantize_linear_inplace(child, quantizer=quantizer, chunk_size=chunk_size, phi_chunk_size=phi_chunk_size)

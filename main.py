@@ -36,7 +36,7 @@ codebook.load_codebooks()
 quantizer = Quantizer(codebook)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model_name", type=str, default="Qwen/Qwen3-4B",
+parser.add_argument("--model_name", type=str, default="Qwen/Qwen3-0.6B",
                         help="model id")
 parser.add_argument("--dataset_name", type=str, default="wikitext",
                         help="dataset name")
@@ -56,6 +56,10 @@ parser.add_argument("--batch_size", type=int, default=8,
                         help="batch size")
 parser.add_argument("--device", type=str, default='cuda',
                         help="device")
+parser.add_argument("--chunk_size", type=int, default=1024,
+                        help="chunk size for PCDVQ quantization over codebook entries")
+parser.add_argument("--phi_chunk_size", type=int, default=262144,
+                        help="chunk size for PCDVQ quantization over phi rows")
 args = parser.parse_args()
 
 dtype = torch.float16
@@ -85,7 +89,12 @@ save_path = args.model_name
 
 if args.quantize_with_pcdvq:
     logger.info("Quantizing linear layers with PCDVQ...")
-    quantize_linear_inplace(model, quantizer=quantizer)
+    quantize_linear_inplace(
+        model,
+        quantizer=quantizer,
+        chunk_size=args.chunk_size,
+        phi_chunk_size=args.phi_chunk_size,
+    )
     logger.info("Quantization done.")
 
     if args.save_path is None:
