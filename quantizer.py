@@ -87,17 +87,20 @@ class Quantizer:
     def quantize_inplace(self, weights:torch.Tensor, chunk_size: int = 1024, phi_chunk_size: int = 1024)->torch.Tensor:
         """Quantize the input tensor.  Return indicies of the codebooks, original mean and std."""
         device = weights.device
-        dtype = weights.dtype
+        orig_dtype = weights.dtype
 
-        logger.info(f"Quantizing weights of shape {weights.shape} with device {device} and dtype {dtype}")
-        reshaped_weights = self.reshape_weights(weights)
-        randomized_hadamard = RandomizedHadamard(reshaped_weights.shape[1], device=device, dtype=dtype)
+        # Work in float32 for stability, then cast back.
+        work_weights = weights.detach().to(dtype=torch.float32)
+
+        logger.info(f"Quantizing weights of shape {weights.shape} with device {device} and dtype {orig_dtype}")
+        reshaped_weights = self.reshape_weights(work_weights)
+        randomized_hadamard = RandomizedHadamard(reshaped_weights.shape[1], device=device, dtype=torch.float32)
         standardized_weights = randomized_hadamard.forward(reshaped_weights)
 
         phis, magnitudes = self.to_polar(standardized_weights)
 
-        C_phis = self.codebook.codebook_direction.to(device=device, dtype=dtype)
-        C_magnitudes = self.codebook.codebook_magnitude.to(device=device, dtype=dtype)
+        C_phis = self.codebook.codebook_direction.to(device=device, dtype=torch.float32)
+        C_magnitudes = self.codebook.codebook_magnitude.to(device=device, dtype=torch.float32)
 
         logger.info(
             f"Quantization shapes - phis: {phis.shape}, C_phis: {C_phis.shape}, "
@@ -118,9 +121,13 @@ class Quantizer:
         weights_q = self.to_cartesian(C_phis[idx_dir], C_magnitudes[idx_rad].unsqueeze(1))
         unnormalized_weights_q = randomized_hadamard.reverse(weights_q)
 
+        if not torch.isfinite(unnormalized_weights_q).all():
+            bad = torch.isfinite(unnormalized_weights_q) == False
+            logger.warning(f"Found non-finite values in quantized weights; count={bad.sum().item()}")
+
         unreshaped_weights_q = self.unreshape_weights(unnormalized_weights_q, weights.shape[0], weights.shape[1])
 
-        return unreshaped_weights_q
+        return unreshaped_weights_q.to(dtype=orig_dtype)
 
 def find_best_index_chunk(
     phis: torch.Tensor,
@@ -181,6 +188,9 @@ def quantize_linear_inplace(module, *, quantizer: Quantizer, chunk_size=512, phi
         if isinstance(child, torch.nn.Linear):
             W = child.weight.detach().clone()
             Wq = quantizer.quantize_inplace(W, chunk_size=chunk_size, phi_chunk_size=phi_chunk_size)
-            child.weight.copy_(Wq)
+            if not torch.isfinite(Wq).all():
+                logger.warning(f"Skipping update for layer {child} due to non-finite quantized weights")
+            else:
+                child.weight.copy_(Wq)
         else:
             quantize_linear_inplace(child, quantizer=quantizer, chunk_size=chunk_size, phi_chunk_size=phi_chunk_size)

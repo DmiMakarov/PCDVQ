@@ -112,7 +112,7 @@ m = HFLM(
         max_length=getattr(tokenizer, "model_max_length", 2048),
         batch_size="auto",
         dtype=dtype,
-        trust_remote_code=True,
+        trust_remote_code=args.trust_remote_code,
     )
 
 tm = TaskManager()
