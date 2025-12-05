@@ -91,7 +91,7 @@ class Quantizer:
 
         logger.info(f"Quantizing weights of shape {weights.shape} with device {device} and dtype {dtype}")
         reshaped_weights = self.reshape_weights(weights)
-        randomized_hadamard = RandomizedHadamard(reshaped_weights.shape[0], device=device, dtype=dtype)
+        randomized_hadamard = RandomizedHadamard(reshaped_weights.shape[1], device=device, dtype=dtype)
         standardized_weights = randomized_hadamard.forward(reshaped_weights)
 
         phis, magnitudes = self.to_polar(standardized_weights)
