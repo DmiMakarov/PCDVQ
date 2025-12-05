@@ -15,11 +15,28 @@ from lm_eval import evaluator
 from lm_eval.tasks import TaskManager
 from lm_eval.models.huggingface import HFLM
 from lm_eval.utils import make_table
+from collections.abc import Callable
+from typing import Iterable
+from filters import qwen3_pcdvq_filter
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 number_of_linear = 0
+number_of_quantizable_linear = 0
+
+def check_number_of_quantizable_linear(module, filter_fn: Callable, prefix: str = ""):
+    """Quantize each linear layer in the input module inplace."""
+    for child_name, child in list(module.named_children()):
+        full_name = f"{prefix}.{child_name}" if prefix else child_name
+
+        if isinstance(child, torch.nn.Linear) and filter_fn(full_name, child):
+            global number_of_quantizable_linear
+            number_of_quantizable_linear += 1
+            logger.info(f"Quantizable linear layer: {full_name}")
+        else:
+            check_number_of_quantizable_linear(child, filter_fn, full_name)
 
 def check_number_of_linear(module):
     """Quantize each linear layer in the input module inplace."""
@@ -29,6 +46,7 @@ def check_number_of_linear(module):
             number_of_linear += 1
         else:
             check_number_of_linear(child)
+
 
 codebook = Codebook()
 codebook.load_codebooks()
@@ -78,9 +96,10 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 model.eval()
 
+check_number_of_quantizable_linear(model, qwen3_pcdvq_filter)
 check_number_of_linear(model)
 
-logger.info(f"Number of linear layers: {number_of_linear}")
+logger.info(f"Number of quantizable linear layers: {number_of_quantizable_linear}/{number_of_linear}")
 
 dataset = load_dataset(args.dataset_name, args.dataset_config, split=args.split)
 texts = [text for text in dataset["text"] if isinstance(text, str) and text.strip() != ""]
@@ -94,6 +113,7 @@ if args.quantize_with_pcdvq:
         quantizer=quantizer,
         chunk_size=args.chunk_size,
         phi_chunk_size=args.phi_chunk_size,
+        filter_fn=qwen3_pcdvq_filter,
     )
     logger.info("Quantization done.")
 
@@ -105,6 +125,40 @@ if args.quantize_with_pcdvq:
 
 
 TASKS = ["wikitext"]
+
+def _iter_tensors(obj) -> Iterable[torch.Tensor]:
+    if torch.is_tensor(obj):
+        yield obj
+    elif isinstance(obj, (list, tuple)):
+        for x in obj:
+            if torch.is_tensor(x):
+                yield x
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            if torch.is_tensor(v):
+                yield v
+
+# Install hooks to report the first module that emits non-finite outputs.
+nan_hit = {"seen": False}
+nan_hook_handles = []
+def _make_nan_hook(name: str):
+    def _hook(module, args, output):
+        if nan_hit["seen"]:
+            return
+        for t in _iter_tensors(output):
+            if not torch.isfinite(t).all():
+                bad = (~torch.isfinite(t)).sum().item()
+                max_abs = t.abs().max().item()
+                logger.warning(
+                    f"Non-finite module output in {name} ({type(module).__name__}); "
+                    f"count={bad}, max_abs={max_abs:.4e}, shape={tuple(t.shape)}, dtype={t.dtype}"
+                )
+                nan_hit["seen"] = True
+                break
+    return _hook
+
+for mod_name, mod in model.named_modules():
+    nan_hook_handles.append(mod.register_forward_hook(_make_nan_hook(mod_name)))
 
 m = HFLM(
         pretrained=model,
@@ -121,6 +175,9 @@ results = evaluator.simple_evaluate(
         tasks=TASKS,
         task_manager=tm,
 )
+
+for h in nan_hook_handles:
+    h.remove()
 
 print(make_table(results))
 

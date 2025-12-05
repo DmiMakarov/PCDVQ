@@ -3,7 +3,7 @@ import math
 import torch
 from codebooks import Codebook
 from standart_requlazition import RandomizedHadamard
-
+from collections.abc import Callable
 from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO)
@@ -88,9 +88,17 @@ class Quantizer:
         """Quantize the input tensor.  Return indicies of the codebooks, original mean and std."""
         device = weights.device
         orig_dtype = weights.dtype
-
         # Work in float32 for stability, then cast back.
         work_weights = weights.detach().to(dtype=torch.float32)
+
+        q_min = work_weights.min().item()
+        q_max = work_weights.max().item()
+        q_mean = work_weights.mean().item()
+        q_std = work_weights.std(unbiased=False).item()
+        logger.info(
+            f"Original weights stats - min: {q_min:.4e}, max: {q_max:.4e}, "
+            f"mean: {q_mean:.4e}, std: {q_std:.4e}"
+        )
 
         logger.info(f"Quantizing weights of shape {weights.shape} with device {device} and dtype {orig_dtype}")
         reshaped_weights = self.reshape_weights(work_weights)
@@ -124,6 +132,16 @@ class Quantizer:
         if not torch.isfinite(unnormalized_weights_q).all():
             bad = torch.isfinite(unnormalized_weights_q) == False
             logger.warning(f"Found non-finite values in quantized weights; count={bad.sum().item()}")
+        else:
+            # Lightweight stats for debugging stability issues.
+            q_min = unnormalized_weights_q.min().item()
+            q_max = unnormalized_weights_q.max().item()
+            q_mean = unnormalized_weights_q.mean().item()
+            q_std = unnormalized_weights_q.std(unbiased=False).item()
+            logger.info(
+                f"Quantized weights stats - min: {q_min:.4e}, max: {q_max:.4e}, "
+                f"mean: {q_mean:.4e}, std: {q_std:.4e}"
+            )
 
         unreshaped_weights_q = self.unreshape_weights(unnormalized_weights_q, weights.shape[0], weights.shape[1])
 
@@ -178,14 +196,21 @@ def find_best_index_chunk(
     return best_idx
 
 
-
-
 @torch.no_grad()
-def quantize_linear_inplace(module, *, quantizer: Quantizer, chunk_size=512, phi_chunk_size: int = 1024):
+def quantize_linear_inplace(module,
+                            *,
+                            quantizer: Quantizer,
+                            filter_fn: Callable,
+                            prefix: str = "",
+                            chunk_size=512,
+                            phi_chunk_size: int = 1024):
     """Quantize each linear layer in the input module inplace."""
-    logger.info("Quantizing linear layers with PCDVQ...")
-    for _, child in list(module.named_children()):
-        if isinstance(child, torch.nn.Linear):
+    for child_name, child in list(module.named_children()):
+
+        full_name = f"{prefix}.{child_name}" if prefix else child_name
+
+        if isinstance(child, torch.nn.Linear) and filter_fn(full_name, child):
+            logger.info("Quantizing linear layers with PCDVQ...")
             W = child.weight.detach().clone()
             Wq = quantizer.quantize_inplace(W, chunk_size=chunk_size, phi_chunk_size=phi_chunk_size)
             if not torch.isfinite(Wq).all():
@@ -193,4 +218,4 @@ def quantize_linear_inplace(module, *, quantizer: Quantizer, chunk_size=512, phi
             else:
                 child.weight.copy_(Wq)
         else:
-            quantize_linear_inplace(child, quantizer=quantizer, chunk_size=chunk_size, phi_chunk_size=phi_chunk_size)
+            quantize_linear_inplace(child, quantizer=quantizer, filter_fn=filter_fn, prefix=full_name, chunk_size=chunk_size, phi_chunk_size=phi_chunk_size)
