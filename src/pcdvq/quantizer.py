@@ -104,7 +104,7 @@ class Quantizer:
         logger.info(f"Quantizing weights of shape {weights.shape} with device {device} and dtype {orig_dtype}")
         reshaped_weights = self.reshape_weights(work_weights)
         randomized_hadamard = RandomizedHadamard(reshaped_weights.shape[1], device=device, dtype=torch.float32)
-        standardized_weights = randomized_hadamard.forward(reshaped_weights)
+        standardized_weights, scale = randomized_hadamard(reshaped_weights)
 
         phis, magnitudes = self.to_polar(standardized_weights)
 
@@ -128,7 +128,7 @@ class Quantizer:
         idx_rad = d.argmin(dim=1)
 
         weights_q = self.to_cartesian(C_phis[idx_dir], C_magnitudes[idx_rad].unsqueeze(1))
-        unnormalized_weights_q = randomized_hadamard.reverse(weights_q)
+        unnormalized_weights_q = randomized_hadamard.reverse(weights_q, scale)
 
         if not torch.isfinite(unnormalized_weights_q).all():
             bad = torch.isfinite(unnormalized_weights_q) == False
@@ -198,10 +198,10 @@ def find_best_index_chunk(
 
 
 @torch.no_grad()
-def quantize_linear_inplace(model, quantizer: Quantizer, filter_fn: Callable, chunk_size: int = 512, phi_chunk_size: int = 1024):
+def quantize_linear_inplace(model, quantizer: Quantizer, filter_fn: Callable=None, chunk_size: int = 512, phi_chunk_size: int = 1024):
     """Quantize each linear layer in the input model inplace."""
-    for nm, m in get_linear_layers(model, filter_fn):
-        logger.info(f"Quantizing {nm} with PCDVQ...")
+    for nm, m in get_linear_layers(model, filter_fn).items():
+        logger.info(f"Quantizing layer {nm} with PCDVQ...")
         w = m.weight.detach().clone()
         wq = quantizer.quantize(w, chunk_size=chunk_size, phi_chunk_size=phi_chunk_size)
 
