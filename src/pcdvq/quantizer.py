@@ -1,8 +1,8 @@
 import logging
 import math
 import torch
-from codebooks import Codebook
-from standart_requlazition import RandomizedHadamard
+from .codebooks import Codebook
+from .standart_requlazition import RandomizedHadamard
 from collections.abc import Callable
 from tqdm import tqdm
 

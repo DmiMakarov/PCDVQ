@@ -1,6 +1,6 @@
-from codebooks import Codebook
-from quantizer import Quantizer
-from quantizer import quantize_linear_inplace
+from pcdvq.codebooks import Codebook
+from pcdvq.quantizer import Quantizer
+from pcdvq.quantizer import quantize_linear_inplace
 
 import argparse
 from pathlib import Path
@@ -17,7 +17,7 @@ from lm_eval.models.huggingface import HFLM
 from lm_eval.utils import make_table
 from collections.abc import Callable
 from typing import Iterable
-from filters import qwen3_pcdvq_filter
+from pcdvq.filters import qwen3_pcdvq_filter
 
 
 logging.basicConfig(level=logging.INFO)
