@@ -4,7 +4,7 @@ from torch import Tensor
 
 from .nearest import find_nearest
 from .codebooks import Codebook
-from .standart_requlazition import RandomizedHadamard
+from .normalization import RandomizedHadamard
 from .utils import *
 from collections.abc import Callable
 from tqdm.auto import tqdm
