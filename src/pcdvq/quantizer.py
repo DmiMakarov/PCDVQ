@@ -3,8 +3,9 @@ import math
 import torch
 from .codebooks import Codebook
 from .standart_requlazition import RandomizedHadamard
+from .utils import get_linear_layers
 from collections.abc import Callable
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -84,8 +85,8 @@ class Quantizer:
         return x
 
 
-    def quantize_inplace(self, weights:torch.Tensor, chunk_size: int = 1024, phi_chunk_size: int = 1024)->torch.Tensor:
-        """Quantize the input tensor.  Return indicies of the codebooks, original mean and std."""
+    def quantize(self, weights: torch.Tensor, chunk_size: int = 1024, phi_chunk_size: int = 1024) -> torch.Tensor:
+        """Quantize the input tensor. Return indicies of the codebooks, original mean and std."""
         device = weights.device
         orig_dtype = weights.dtype
         # Work in float32 for stability, then cast back.
@@ -197,25 +198,14 @@ def find_best_index_chunk(
 
 
 @torch.no_grad()
-def quantize_linear_inplace(module,
-                            *,
-                            quantizer: Quantizer,
-                            filter_fn: Callable,
-                            prefix: str = "",
-                            chunk_size=512,
-                            phi_chunk_size: int = 1024):
-    """Quantize each linear layer in the input module inplace."""
-    for child_name, child in list(module.named_children()):
+def quantize_linear_inplace(model, quantizer: Quantizer, filter_fn: Callable, chunk_size: int = 512, phi_chunk_size: int = 1024):
+    """Quantize each linear layer in the input model inplace."""
+    for nm, m in get_linear_layers(model, filter_fn):
+        logger.info(f"Quantizing {nm} with PCDVQ...")
+        w = m.weight.detach().clone()
+        wq = quantizer.quantize(w, chunk_size=chunk_size, phi_chunk_size=phi_chunk_size)
 
-        full_name = f"{prefix}.{child_name}" if prefix else child_name
-
-        if isinstance(child, torch.nn.Linear) and filter_fn(full_name, child):
-            logger.info("Quantizing linear layers with PCDVQ...")
-            W = child.weight.detach().clone()
-            Wq = quantizer.quantize_inplace(W, chunk_size=chunk_size, phi_chunk_size=phi_chunk_size)
-            if not torch.isfinite(Wq).all():
-                logger.warning(f"Skipping update for layer {child} due to non-finite quantized weights")
-            else:
-                child.weight.copy_(Wq)
+        if not torch.isfinite(wq).all():
+            logger.warning(f"Skipping update for {nm} due to non-finite weights")
         else:
-            quantize_linear_inplace(child, quantizer=quantizer, filter_fn=filter_fn, prefix=full_name, chunk_size=chunk_size, phi_chunk_size=phi_chunk_size)
+            m.weight.copy_(wq)

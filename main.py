@@ -1,6 +1,6 @@
 from pcdvq.codebooks import Codebook
-from pcdvq.quantizer import Quantizer
-from pcdvq.quantizer import quantize_linear_inplace
+from pcdvq.quantizer import Quantizer, quantize_linear_inplace
+from pcdvq.utils import get_linear_layers
 
 import argparse
 from pathlib import Path
@@ -22,30 +22,6 @@ from pcdvq.filters import qwen3_pcdvq_filter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-number_of_linear = 0
-number_of_quantizable_linear = 0
-
-def check_number_of_quantizable_linear(module, filter_fn: Callable, prefix: str = ""):
-    """Quantize each linear layer in the input module inplace."""
-    for child_name, child in list(module.named_children()):
-        full_name = f"{prefix}.{child_name}" if prefix else child_name
-
-        if isinstance(child, torch.nn.Linear) and filter_fn(full_name, child):
-            global number_of_quantizable_linear
-            number_of_quantizable_linear += 1
-            logger.info(f"Quantizable linear layer: {full_name}")
-        else:
-            check_number_of_quantizable_linear(child, filter_fn, full_name)
-
-def check_number_of_linear(module):
-    """Quantize each linear layer in the input module inplace."""
-    for _, child in list(module.named_children()):
-        if isinstance(child, torch.nn.Linear):
-            global number_of_linear
-            number_of_linear += 1
-        else:
-            check_number_of_linear(child)
 
 
 codebook = Codebook()
@@ -95,9 +71,10 @@ model = AutoModelForCausalLM.from_pretrained(
         trust_remote_code=args.trust_remote_code,
 )
 model.eval()
+number_of_linear, number_of_quantizable_linear = 0,0
 
-check_number_of_quantizable_linear(model, qwen3_pcdvq_filter)
-check_number_of_linear(model)
+number_of_quantizable_linear = len(get_linear_layers(model, qwen3_pcdvq_filter))
+number_of_linear = len(get_linear_layers(model))
 
 logger.info(f"Number of quantizable linear layers: {number_of_quantizable_linear}/{number_of_linear}")
 

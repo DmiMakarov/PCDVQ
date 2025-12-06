@@ -4,6 +4,7 @@ from math import sqrt
 import torch
 import torch.nn.functional as F
 
+
 class StandardRegularization(ABC):
     """
     Abstract base for regularization/transformation blocks applied to tensors.
@@ -25,17 +26,21 @@ class StandardRegularization(ABC):
         """Inverse of `forward`. Must be implemented by subclasses when invertible."""
         raise NotImplementedError
 
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        return self.forward(x)
+
 
 class RandomizedHadamard(StandardRegularization):
     """
     Randomized Hadamard transform per row (last dimension) for standard Gaussian regularization.
     """
+
     def __init__(
         self,
         p: int,
         seed: int = 42,
         device: torch.device = None,
-        dtype: torch.dtype = torch.float32
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__()
 
@@ -56,7 +61,9 @@ class RandomizedHadamard(StandardRegularization):
         self.n = 1 << (p - 1).bit_length()
 
         # generate random sign vector
-        self.signs = (torch.randint(0, 2, (self.n,), generator=g, device=device) * 2 - 1).to(dtype)
+        self.signs = (
+            torch.randint(0, 2, (self.n,), generator=g, device=device) * 2 - 1
+        ).to(dtype)
 
         # permutation functionality
         self.permute = torch.randperm(self.n, generator=g, device=device)
@@ -76,7 +83,7 @@ class RandomizedHadamard(StandardRegularization):
             raise ValueError("Hadamard length (cols) must be a power of two")
 
         h = 1
-        y = x
+        y = x.clone()
         while h < n:
             y = y.view(rows, n // (2 * h), 2, h)
             a, b = y[:, :, 0, :], y[:, :, 1, :]
@@ -104,7 +111,9 @@ class RandomizedHadamard(StandardRegularization):
 
         # calcualte scaling factor for standardization (per row)
         sqrt_num_cols = sqrt(self.n)
-        self.s = (torch.linalg.vector_norm(x, dim=1).clamp_min(self.eps) / sqrt_num_cols).unsqueeze(1)
+        self.s = (
+            torch.linalg.vector_norm(x, dim=1).clamp_min(self.eps) / sqrt_num_cols
+        ).unsqueeze(1)
 
         # apply randomized Hadamard transform (row-wise)
         y = self.fwht(x)
@@ -146,4 +155,4 @@ class RandomizedHadamard(StandardRegularization):
         x_padded = self.fwht(y)
 
         # remove padding if original length < n
-        return x_padded[:, :self.p]
+        return x_padded[:, : self.p]

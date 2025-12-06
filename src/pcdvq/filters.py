@@ -1,4 +1,4 @@
-def qwen3_pcdvq_filter(name, layer):
+def qwen3_pcdvq_filter(name):
     name = name.lower()
 
     # Skip LM head, embeddings, norms
