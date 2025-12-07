@@ -2,7 +2,9 @@ from abc import ABC, abstractmethod
 from math import sqrt
 
 import torch
+from torch import Tensor
 import torch.nn.functional as F
+
 
 class StandardRegularization(ABC):
     """
@@ -12,44 +14,40 @@ class StandardRegularization(ABC):
     a transformed tensor of the same shape (unless otherwise documented).
     """
 
-    def __init__(self) -> None:
-        super().__init__()
-
     @abstractmethod
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         """Apply the regularization/transform to `x`. Must be implemented by subclasses."""
         raise NotImplementedError
 
     @abstractmethod
-    def reverse(self, y: torch.Tensor) -> torch.Tensor:
+    def reverse(self, y: Tensor):
         """Inverse of `forward`. Must be implemented by subclasses when invertible."""
         raise NotImplementedError
+
+    def __call__(self, x: Tensor):
+        return self.forward(x)
 
 
 class RandomizedHadamard(StandardRegularization):
     """
     Randomized Hadamard transform per row (last dimension) for standard Gaussian regularization.
     """
+
     def __init__(
         self,
         p: int,
         seed: int = 42,
         device: torch.device = None,
-        dtype: torch.dtype = torch.float32
+        dtype: torch.dtype = torch.float32,
     ) -> None:
-        super().__init__()
+        self.p, self.dtype, self.device = p, dtype, device
 
         self.p = p
-        self.seed = seed
-        self.device = device
-        self.dtype = dtype
         self.eps = torch.finfo(dtype).eps
-        self.s = None
 
         # generator for reproducibility
-        g = None
+        g = torch.Generator(device=device)
         if seed is not None:
-            g = torch.Generator(device=device)
             g.manual_seed(seed)
 
         # padding to next power of two (length along transform axis)
@@ -57,16 +55,16 @@ class RandomizedHadamard(StandardRegularization):
 
         # generate random sign vector
         self.signs = (torch.randint(0, 2, (self.n,), generator=g, device=device) * 2 - 1).to(dtype)
-
         # permutation functionality
-        self.permute = torch.randperm(self.n, generator=g, device=device)
+        self.perm = torch.randperm(self.n, generator=g, device=device)
+        self.inv_perm = torch.argsort(self.perm)
 
     @staticmethod
-    def fwht(x: torch.Tensor) -> torch.Tensor:
+    def fwht(x: Tensor) -> Tensor:
         """Fast Walsh–Hadamard transform along the last dimension (per row).
 
-        Each row is transformed independently. The last dimension length
-        must be a power of two.
+        Each row is transformed independently.
+        Input: (Batch, N). N must be power of 2.
         """
         if x.dim() != 2:
             raise ValueError(f"Expected a 2D tensor shaped (rows, cols), got {x.dim()}")
@@ -76,7 +74,7 @@ class RandomizedHadamard(StandardRegularization):
             raise ValueError("Hadamard length (cols) must be a power of two")
 
         h = 1
-        y = x
+        y = x.clone()
         while h < n:
             y = y.view(rows, n // (2 * h), 2, h)
             a, b = y[:, :, 0, :], y[:, :, 1, :]
@@ -86,7 +84,7 @@ class RandomizedHadamard(StandardRegularization):
 
         return y / sqrt(n)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         """
         Apply the randomized Hadamard transform to each row of `x` (last dimension).
 
@@ -94,32 +92,23 @@ class RandomizedHadamard(StandardRegularization):
             x: Input tensor.
 
         Returns:
-            Transformed tensor.
+            Transformed tensor, scaling factor
         """
         k = x.shape[1]
-
         # pad columns to next power of two
         if k < self.n:
             x = F.pad(x, (0, self.n - k))
-
         # calcualte scaling factor for standardization (per row)
-        sqrt_num_cols = sqrt(self.n)
-        self.s = (torch.linalg.vector_norm(x, dim=1).clamp_min(self.eps) / sqrt_num_cols).unsqueeze(1)
-
-        # apply randomized Hadamard transform (row-wise)
-        y = self.fwht(x)
-
+        s = (torch.linalg.vector_norm(x, dim=1).clamp_min(self.eps) / sqrt(self.n)).unsqueeze(1)
         # apply random sings
-        y_rand = y * self.signs.view(1, -1)
+        y = x * self.signs.view(1, -1)
+        # apply Hadamard (row-wise)
+        y = self.fwht(x)
+        # permute and normalize
+        y = y[:, self.perm]
+        return y / s, s
 
-        # apply permutation
-        y_rand = y_rand[:, self.permute]
-
-        # scaling
-
-        return y_rand / self.s
-
-    def reverse(self, z: torch.Tensor) -> torch.Tensor:
+    def reverse(self, z: Tensor, s: Tensor) -> Tensor:
         """
         Inverse of the randomized Hadamard transform.
 
@@ -129,21 +118,12 @@ class RandomizedHadamard(StandardRegularization):
         Returns:
             Original tensor before transformation.
         """
-        if self.s is None:
-            raise ValueError("Must call forward() before reverse().")
-
-        # undo scaling
-        y_rand = z * self.s
-
+        y = z * s
         # inverse permutation
-        inv_permute = torch.argsort(self.permute)
-        y_rand = y_rand[:, inv_permute]
-
-        # undo random signs
-        y = y_rand / self.signs.view(1, -1)
-
+        y = y[:, self.inv_perm]
         # undo Hadamard (scaled)
         x_padded = self.fwht(y)
-
+        # undo random signs
+        y = y / self.signs.view(1, -1)
         # remove padding if original length < n
-        return x_padded[:, :self.p]
+        return x_padded[:, : self.p]

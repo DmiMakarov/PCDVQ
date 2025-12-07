@@ -1,6 +1,6 @@
-from codebooks import Codebook
-from quantizer import Quantizer
-from standart_requlazition import RandomizedHadamard
+from pcdvq.codebooks import Codebook
+from pcdvq.quantizer import Quantizer
+from pcdvq.standart_requlazition import RandomizedHadamard
 
 import torch
 
