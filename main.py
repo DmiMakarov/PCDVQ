@@ -1,4 +1,4 @@
-from pcdvq.codebooks import Codebook
+from pcdvq.codebooks import PCDVQCodebook
 from pcdvq.quantizer import Quantizer, quantize_linear_inplace
 from pcdvq.utils import get_linear_layers
 
@@ -21,9 +21,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 ### init quantizer
-codebook = Codebook()
-codebook.load_codebooks()
-quantizer = Quantizer(codebook)
+codebook = PCDVQCodebook()
+codebook.load("codebook.pt")
 
 ### parse arguments
 parser = argparse.ArgumentParser()
@@ -44,7 +43,7 @@ parser.add_argument("--phi_chunk_size", type=int, default=262144, help="chunk si
 args = parser.parse_args()
 
 
-### init tokenizer and model 
+### init tokenizer and model
 dtype = torch.float16
 device = args.device
 
@@ -69,7 +68,7 @@ number_of_linear = len(get_linear_layers(model))
 
 logger.info(f"Number of quantizable linear layers: {number_of_quantizable_linear}/{number_of_linear}")
 
-
+quantizer = Quantizer(codebook, codebook_chunk_size=args.chunk_size, phi_chunk_size=args.phi_chunk_size)
 save_path = args.model_name
 ### optionally quantize
 if args.quantize_with_pcdvq:
@@ -77,8 +76,6 @@ if args.quantize_with_pcdvq:
     quantize_linear_inplace(
         model,
         quantizer=quantizer,
-        chunk_size=args.chunk_size,
-        phi_chunk_size=args.phi_chunk_size,
         filter_fn=qwen3_pcdvq_filter,
     )
     logger.info("Quantization done.")

@@ -1,11 +1,11 @@
-from pcdvq.codebooks import Codebook
+from pcdvq.codebooks import PCDVQCodebook
 from pcdvq.quantizer import Quantizer
-from pcdvq.standart_requlazition import RandomizedHadamard
+from pcdvq.normalization import RandomizedHadamard
 
 import torch
 
-codebook = Codebook()
-codebook.load_codebooks()
+codebook = PCDVQCodebook()
+codebook.load('codebook.pt')
 
 quantizer = Quantizer(codebook)
 

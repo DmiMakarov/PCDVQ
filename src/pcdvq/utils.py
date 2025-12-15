@@ -11,14 +11,15 @@ def get_linear_layers(model: nn.Module, filter_fn: Callable = None):
     return {
         name: module
         for name, module in model.named_modules()
-        if filter_fn(name.rsplit(".", 1)[1] if '.' in name else name) and isinstance(module, nn.Linear)
+        if filter_fn(name.rsplit(".", 1)[1] if "." in name else name) and isinstance(module, nn.Linear)
     }
 
 
 ### Vector functions
 
+
 def to_unit_vectors(angles: Tensor) -> Tensor:
-    '''Converts vector of angles to cartesian vectors on unit sphere'''
+    """Converts vector of angles to cartesian vectors on unit sphere"""
     sin_matrix = torch.sin(angles)
     cos_matrix = torch.cos(angles)
 
@@ -30,6 +31,7 @@ def to_unit_vectors(angles: Tensor) -> Tensor:
 
     return torch.cat([x_except_last, x_last], dim=-1)
 
+
 def to_cartesian(phis: Tensor, r: Tensor) -> Tensor:
     """
     Convert tensor from polar to cartesian coordinates
@@ -39,6 +41,7 @@ def to_cartesian(phis: Tensor, r: Tensor) -> Tensor:
 
     unit_dirs = to_unit_vectors(phis)
     return r * unit_dirs
+
 
 def to_polar(x: Tensor) -> tuple[Tensor, Tensor]:
     """
@@ -59,3 +62,6 @@ def to_polar(x: Tensor) -> tuple[Tensor, Tensor]:
     phis[:, -1] = phi_last.remainder(2 * torch.pi)
 
     return phis, r
+
+
+default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

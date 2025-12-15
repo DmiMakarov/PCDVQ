@@ -103,7 +103,7 @@ class RandomizedHadamard(StandardRegularization):
         # apply random sings
         y = x * self.signs.view(1, -1)
         # apply Hadamard (row-wise)
-        y = self.fwht(x)
+        y = self.fwht(y)
         # permute and normalize
         y = y[:, self.perm]
         return y / s, s
@@ -124,6 +124,6 @@ class RandomizedHadamard(StandardRegularization):
         # undo Hadamard (scaled)
         x_padded = self.fwht(y)
         # undo random signs
-        y = y / self.signs.view(1, -1)
+        x_padded = x_padded / self.signs.view(1, -1)
         # remove padding if original length < n
         return x_padded[:, : self.p]

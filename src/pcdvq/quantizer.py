@@ -1,9 +1,9 @@
 import logging
-import torch
+import torch, torch.nn.functional as F
 from torch import Tensor
 
 from .nearest import find_nearest
-from .codebooks import Codebook
+from .codebooks import PCDVQCodebook
 from .normalization import RandomizedHadamard
 from .utils import *
 from collections.abc import Callable
@@ -15,36 +15,25 @@ logger = logging.getLogger(__name__)
 
 
 class Quantizer:
-    def __init__(self, codebook: Codebook, k: int = 8, codebook_chunk_size: int = 1024, phi_chunk_size: int = 1024):
-        self.k = k
-        self.cb_chunk_size, self.phi_chunk_size = codebook_chunk_size, phi_chunk_size
-        self.codebook = codebook
+    def __init__(
+        self, codebook: PCDVQCodebook, codebook_chunk_size: int = 1024, phi_chunk_size: int = 1024, device=default_device
+    ):
+        self.k, self.device = codebook.k, device
+        self.batch_size, self.phi_batch_size = codebook_chunk_size, phi_chunk_size
+        self.codebook = codebook.to(device)
 
-    def load_codebooks(self, path: str):
-        """Load the codebooks from a file."""
-        self.codebook.load_codebooks(path)
-        logger.info("Loaded codebooks successfully")
+    def _to_blocks(self, x: Tensor) -> Tensor:
+        """Flatten input and reshape into blocks of k. Pads if necessary."""
+        k = self.k
+        flat = x.view(-1)
+        if (rem := flat.numel() % k) != 0:
+            flat = F.pad(flat, (0, k - rem))
+        return flat.view(-1, k)
 
-    def reshape_weights(self, weights: Tensor, pad_value: float = 0.0) -> Tensor:
-        """Reshape the input tensor to the shape of the codebooks."""
-        p, q = weights.shape
-        n = p * q
-        rem = n % self.k
-
-        flat = weights.reshape(-1)
-        if rem != 0:
-            pad_elems = self.k - rem
-            pad = flat.new_full((pad_elems,), pad_value)
-            flat = torch.cat([flat, pad], dim=0)
-
-        return flat.view(-1, self.k)
-
-    def unreshape_weights(self, weights: Tensor, p: int, q: int) -> Tensor:
-        """Unreshape the input tensor to the shape of the original weights."""
-        n = p * q
-        flat = weights.reshape(-1)
-
-        return flat[:n].reshape(p, q)
+    def _from_blocks(self, x_blocks: Tensor, original_shape: torch.Size) -> Tensor:
+        """Flatten blocks, crop padding, and reshape to original shape."""
+        numel = original_shape.numel()
+        return x_blocks.view(-1)[:numel].view(original_shape)
 
     def _log_stats(self, weights: Tensor, prefix="Original"):
         q_min = weights.min().item()
@@ -55,70 +44,58 @@ class Quantizer:
 
     def quantize(self, weights: Tensor, chunk_size: int = None, phi_chunk_size: int = None) -> Tensor:
         """Quantize the input tensor. Return indicies of the codebooks, original mean and std."""
-        chunk_size = chunk_size or self.cb_chunk_size
-        phi_chunk_size = phi_chunk_size or self.phi_chunk_size
+        chunk_size = chunk_size or self.batch_size
+        phi_chunk_size = phi_chunk_size or self.phi_batch_size
 
-        device, orig_dtype = weights.device, weights.dtype
-        # Work in float32 for stability, then cast back.
-        work_weights = weights.to(dtype=torch.float32)
+        orig_device, orig_dtype = weights.device, weights.dtype
+        w = weights.float().to(self.device)
+        _, cols = w.shape
 
-        reshaped_weights = self.reshape_weights(work_weights)
+        self._log_stats(w)
 
-        self._log_stats(work_weights)
-        logger.info(f"Quantizing weights of shape {weights.shape} with device {device} and dtype {orig_dtype}")
+        randomized_hadamard = RandomizedHadamard(cols, device=self.device)
+        w_norm, scale = randomized_hadamard(w)
 
-        randomized_hadamard = RandomizedHadamard(reshaped_weights.shape[1], device=device, dtype=torch.float32)
-        standardized_weights, scale = randomized_hadamard(reshaped_weights)
+        w_blocks = self._to_blocks(w_norm)
 
-        phis, magnitudes = to_polar(standardized_weights)
+        phis, magnitudes = to_polar(w_blocks)
 
-        C_phis = self.codebook.directions.to(device=device)
-        C_magnitudes = self.codebook.magnitudes.to(device=device)
+        cb_phis = self.codebook.directions
 
-        logger.info(
-            f"Quantization shapes - phis: {phis.shape}, codebook_phis: {C_phis.shape}, "
-            f"magnitudes: {magnitudes.shape}, codebook_magnitudes: {C_magnitudes.shape}, "
-            f"chunk_size: {chunk_size}, phi_chunk_size: {phi_chunk_size}"
-        )
-        # handle direction
-        phis_unit_vec = to_unit_vectors(phis)
-        C_unit_vec = to_unit_vectors(C_phis)
+        ## handle direction
+        target_dirs = to_unit_vectors(phis)
+        cb_dirs = to_unit_vectors(cb_phis)
 
         idx_dir = find_nearest(
-            phis_unit_vec,
-            C_unit_vec,
+            target_dirs,
+            cb_dirs,
             batch_size=chunk_size,
             codebook_batch_size=phi_chunk_size,
         )
-        # handle magnitude
-        d = (magnitudes.view(-1, 1) - C_magnitudes.view(1, -1)).abs()
+
+        ## handle magnitude
+        cb_mags = self.codebook.magnitudes
+        d = (magnitudes.unsqueeze(1) - cb_mags.unsqueeze(0)).abs()
         idx_rad = d.argmin(dim=1)
 
         ## reconstruction
+        w_q_blocks = to_cartesian(cb_phis[idx_dir], cb_mags[idx_rad].unsqueeze(1))
 
-        weights_q = to_cartesian(C_phis[idx_dir], C_magnitudes[idx_rad].unsqueeze(1))
-        unnormalized_weights_q = randomized_hadamard.reverse(weights_q, scale)
+        w_q_norm = self._from_blocks(w_q_blocks, w_norm.shape)
+        w_q = randomized_hadamard.reverse(w_q_norm, scale)
 
-        if not torch.isfinite(unnormalized_weights_q).all():
-            bad = torch.isfinite(unnormalized_weights_q) == False
-            logger.warning(f"Found non-finite values in quantized weights; count={bad.sum().item()}")
-        else:
-            self._log_stats(unnormalized_weights_q, "Quantized")
+        self._log_stats(w_q, "Quantized")
 
-        unreshaped_weights_q = self.unreshape_weights(unnormalized_weights_q, weights.shape[0], weights.shape[1])
-
-        return unreshaped_weights_q.to(dtype=orig_dtype)
+        return w_q.to(dtype=orig_dtype, device=orig_device)
 
 
 @torch.no_grad()
-def quantize_linear_inplace(
-    model, quantizer: Quantizer, filter_fn: Callable = None, chunk_size: int = 512, phi_chunk_size: int = 1024
-):
+def quantize_linear_inplace(model, quantizer: Quantizer, filter_fn: Callable = None):
     """Quantize each linear layer in the input model inplace."""
     for nm, m in get_linear_layers(model, filter_fn).items():
-        logger.info(f"Quantizing layer {nm} with PCDVQ...")
         w = m.weight.detach().clone()
-        wq = quantizer.quantize(w, chunk_size=chunk_size, phi_chunk_size=phi_chunk_size)
+        logger.info(f"Quantizing layer {nm} | {w.shape} with device {w.device} and dtype {w.dtype}")
+        wq = quantizer.quantize(w)
 
         if not torch.isfinite(wq).all():
             logger.warning(f"Skipping update for {nm} due to non-finite weights")
