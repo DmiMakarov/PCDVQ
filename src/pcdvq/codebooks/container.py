@@ -16,21 +16,23 @@ class PCDVQCodebook:
     def build(self, use_38p: bool = False):
         """Run the optimization pipeline."""
         if use_38p:
+            logger.info("Generating E8P candidates...")
             candidates = construct_direction_codebook()
-            selected_vectors = optimize_direction_codebook(candidates, self.dir_bits)
-            self.directions, _ = to_polar(selected_vectors)
         else:
             logger.info("Generating E8 candidates...")
-        # Increase max_norm if you need more candidates for higher bits
             candidates = generate_e8_candidates(max_norm=4.0)
-            logger.info(f"Pool size: {len(candidates)}")
 
-            logger.info("Optimizing Directions (Greedy)...")
-            selected_vectors = optimize_direction_codebook(candidates, self.dir_bits)
-            self.directions, _ = to_polar(selected_vectors)
+        logger.info(f"Pool size: {len(candidates)}")
+        logger.info("Optimizing Directions (Greedy)...")
+        selected_vectors = optimize_direction_codebook(candidates, self.dir_bits)
+        self.directions, _ = to_polar(selected_vectors)
+
+        logger.info(f"Directions shape: {self.directions.shape}")
 
         logger.info("Optimizing Magnitudes (Lloyd-Max)...")
         self.magnitudes = optimize_magnitude_codebook(self.k, self.mag_bits)
+
+
 
     def save(self, path):
         torch.save({"d": self.directions, "m": self.magnitudes}, path)
