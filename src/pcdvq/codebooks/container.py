@@ -11,8 +11,7 @@ logger = getLogger(__name__)
 class PCDVQCodebook:
     def __init__(self, k: int = 8, direction_bits: int = 14, magnitude_bits: int = 2):
         self.k, self.dir_bits, self.mag_bits = k, direction_bits, magnitude_bits
-        self.directions = None
-        self.magnitudes = None
+        self.phis, self.magnitudes, self.directions = None, None, None
 
     def build(self, use_e8p: bool = True):
         """Run the optimization pipeline."""
@@ -22,8 +21,8 @@ class PCDVQCodebook:
         logger.info(f"Pool size: {len(candidates)}")
 
         logger.info("Optimizing Directions (Greedy)...")
-        selected_vectors = optimize_direction_codebook(candidates, self.dir_bits)
-        self.directions, _ = to_polar(selected_vectors)
+        self.directions = optimize_direction_codebook(candidates, self.dir_bits)
+        self.phis, _ = to_polar(self.directions)
 
         logger.info(f"Directions shape: {self.directions.shape}")
 
@@ -33,14 +32,14 @@ class PCDVQCodebook:
 
 
     def save(self, path):
-        torch.save({"d": self.directions, "m": self.magnitudes}, path)
+        torch.save({"phi": self.phis, "m": self.magnitudes, "d": self.directions}, path)
 
     def load(self, path):
         data = torch.load(path)
-        self.directions, self.magnitudes = data["d"], data["m"]
+        self.phis, self.magnitudes, self.directions = data["phi"], data["m"], data["d"]
 
     def to(self, device):
-        self.directions = self.directions.to(device)
+        self.phis = self.phis.to(device)
         self.magnitudes = self.magnitudes.to(device)
+        self.directions = self.directions.to(device)
         return self
-

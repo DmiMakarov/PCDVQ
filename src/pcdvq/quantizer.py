@@ -57,28 +57,26 @@ class Quantizer:
 
         w_blocks = self._to_blocks(w_norm)
 
-        phis, magnitudes = to_polar(w_blocks)
+        magnitudes = w_blocks.norm(dim=1, keepdim=True) # (N, 1)
 
-        cb_phis = self.codebook.directions
-
-        ## handle direction
-        target_dirs = to_unit_vectors(phis)
-        cb_dirs = to_unit_vectors(cb_phis)
+        ## Handle direction
+        target_dirs = w_blocks / (magnitudes + 1e-8)
 
         idx_dir = find_nearest(
             target_dirs,
-            cb_dirs,
+            self.codebook.directions,
             batch_size=chunk_size,
             codebook_batch_size=phi_chunk_size,
         )
 
-        ## handle magnitude
-        cb_mags = self.codebook.magnitudes
-        d = (magnitudes.unsqueeze(1) - cb_mags.unsqueeze(0)).abs()
+        ## Handle magnitude
+        d = (magnitudes - self.codebook.magnitudes.unsqueeze(0)).abs()
         idx_rad = d.argmin(dim=1)
 
-        ## reconstruction
-        w_q_blocks = to_cartesian(cb_phis[idx_dir], cb_mags[idx_rad].unsqueeze(1))
+        ## Reconstruction
+        best_dirs = self.codebook.directions[idx_dir]
+        best_mags = self.codebook.magnitudes[idx_rad].unsqueeze(1)
+        w_q_blocks = best_dirs * best_mags
 
         w_q_norm = self._from_blocks(w_q_blocks, w_norm.shape)
         w_q = randomized_hadamard.reverse(w_q_norm, scale)
