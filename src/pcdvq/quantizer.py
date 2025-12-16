@@ -10,7 +10,6 @@ from collections.abc import Callable
 from tqdm.auto import tqdm
 
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 

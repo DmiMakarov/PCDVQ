@@ -1,28 +1,26 @@
-from .lattice import generate_e8_candidates
+from .lattice_e8 import generate_e8_candidates
 from .optimization import *
 from ..utils import to_polar
-from .e8p_lattice import construct_direction_codebook
+from .lattice_e8p import generate_e8p_candidates
 
 from logging import getLogger
 
 logger = getLogger(__name__)
 
+
 class PCDVQCodebook:
-    def __init__(self, k: int=8, direction_bits: int=14, magnitude_bits: int=2):
+    def __init__(self, k: int = 8, direction_bits: int = 14, magnitude_bits: int = 2):
         self.k, self.dir_bits, self.mag_bits = k, direction_bits, magnitude_bits
         self.directions = None
         self.magnitudes = None
 
-    def build(self, use_38p: bool = False):
+    def build(self, use_e8p: bool = True):
         """Run the optimization pipeline."""
-        if use_38p:
-            logger.info("Generating E8P candidates...")
-            candidates = construct_direction_codebook()
-        else:
-            logger.info("Generating E8 candidates...")
-            candidates = generate_e8_candidates(max_norm=4.0)
-
+        # Increase max_norm if you need more candidates for higher bits
+        candidates = generate_e8p_candidates() if use_e8p else generate_e8_candidates(max_norm=4.0)
+        
         logger.info(f"Pool size: {len(candidates)}")
+
         logger.info("Optimizing Directions (Greedy)...")
         selected_vectors = optimize_direction_codebook(candidates, self.dir_bits)
         self.directions, _ = to_polar(selected_vectors)
