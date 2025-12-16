@@ -1,5 +1,5 @@
 from typing import Callable
-import torch.nn as nn
+import torch.nn as nn, numpy as np
 import torch
 from torch import Tensor
 
@@ -65,3 +65,9 @@ def to_polar(x: Tensor) -> tuple[Tensor, Tensor]:
 
 
 default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def random_seed(s: int = 42):
+    torch.manual_seed(s)
+    torch.cuda.manual_seed(s)
+    np.random.seed(s)

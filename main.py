@@ -42,7 +42,7 @@ parser.add_argument("--codebook_path", type=str, default="codebook.pt", help="co
 args = parser.parse_args()
 
 ### init quantizer
-codebook = PCDVQCodebook()
+codebook = PCDVQCodebook(direction_bits=14, magnitude_bits=2)
 codebook.load(args.codebook_path)
 
 ### init tokenizer and model

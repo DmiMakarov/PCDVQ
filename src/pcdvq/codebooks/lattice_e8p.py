@@ -1,22 +1,23 @@
 from itertools import product
 from logging import getLogger
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import torch
 
 logger = getLogger(__name__)
 
 
-def construct_direction_codebook()->list[torch.Tensor]:
+def generate_e8p_candidates(max_sq_norm: float = 10.0)->list[torch.Tensor]:
         """Construct the direction codebooks for the codebook."""
         logger.info("Constructing direction codebooks...")
-        d8_half_vectors = generate_d8_half_vectors()
+        d8_half_vectors = generate_d8_half_vectors(max_sq_norm)
         logger.info("Generated d8 half vectors...")
         additional = generate_12()
         logger.info("Generating additional vectors...")
-        d8_signs = generate_d8_signs(torch.cat([d8_half_vectors, additional], dim=0))
-        d8_full = torch.cat([d8_signs, d8_signs + 0.25], dim=0)
+        d8_full = torch.cat([d8_half_vectors, additional], dim=0)
+        d8_signs = generate_d8_signs(d8_full)
 
-        return d8_full / torch.norm(d8_full, dim=0)
+        candidates =  torch.cat([d8_signs, d8_signs + 0.25], dim=0)
+        return candidates / candidates.norm(dim=1, keepdim=True)
 
 
 def generate_d8_half_vectors(max_sq_norm: float = 10.0) -> torch.Tensor:

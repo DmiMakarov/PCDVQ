@@ -24,7 +24,7 @@ def optimize_direction_codebook(candidates: torch.Tensor, n_bits: int = 14, devi
     # Stores max(dot(candidate, selected)) for every candidate.
     # We want to pick the candidate where this value is MINIMIZED (furthest away).
     max_sims = pool @ pool[0]
-    max_sims[0] = float('inf') # Mask the selected one
+    max_sims[0] = float("inf")  # Mask the selected one
 
     # 3. Incrementally add vectors
     # We perform one matrix-vector product per iteration: O(N) memory, O(K*N) compute
@@ -36,7 +36,7 @@ def optimize_direction_codebook(candidates: torch.Tensor, n_bits: int = 14, devi
 
         torch.maximum(max_sims, new_sims, out=max_sims)
 
-        max_sims[best_idx] = float('inf')
+        max_sims[best_idx] = float("inf")
 
     return candidates[selected_indices].cpu()
 
@@ -45,14 +45,13 @@ def optimize_magnitude_codebook(k=8, n_bits=2, m_iters=100):
     """Algorithm 2: Lloyd-Max for Chi-distributed magnitudes."""
     n_centers = 2**n_bits
 
-    # Initialize bounds (using scipy for exact Chi2 CDF inverse)
-    # We want to split the prob mass equally initially
     probs = np.linspace(0, 1, n_centers + 1)
+
     # Inverse CDF of Chi distribution (which is sqrt of Chi2)
     # If X ~ Chi2(k), then sqrt(X) ~ Chi(k)
-    # limits are sqrt(PPF_Chi2(prob))
+    limit_max, grid_res = 20.0, 50_000
     limits = np.sqrt(scipy.stats.chi2.ppf(probs, df=k))
-    limits[-1] = 2 * np.sqrt(k)  # Cap at reasonably high value
+    limits[-1] = limit_max
 
     centers = torch.zeros(n_centers)
 
@@ -65,7 +64,7 @@ def optimize_magnitude_codebook(k=8, n_bits=2, m_iters=100):
     # Or use a discrete approximation which is often more stable and sufficient
 
     # Discrete approximation for stability:
-    r_grid = torch.linspace(0, limits[-1], 10000)
+    r_grid = torch.linspace(0, limits[-1], grid_res)
     pdf = r_grid ** (k - 1) * torch.exp(-(r_grid**2) / 2)
     pdf /= pdf.sum()  # Normalize grid probability
 

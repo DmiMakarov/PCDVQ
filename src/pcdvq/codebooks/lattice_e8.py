@@ -1,7 +1,7 @@
 import torch
 
 
-def generate_e8_candidates(max_norm=4.0):
+def generate_e8_candidates(max_norm: float=4.0):
     """
     Generates unique unit vectors from E8 lattice shells up to max_norm.
     E8 = D8 U (D8 + 0.5).
@@ -23,14 +23,16 @@ def generate_e8_candidates(max_norm=4.0):
 
     # Combine and normalize
     all_vecs = torch.cat([d8, d8_half])
-    norms = all_vecs.norm(dim=1)
 
+    return filter_and_normalize(all_vecs, max_norm)
+
+
+def filter_and_normalize(all_vecs: torch.Tensor, max_norm = 4.0):
+    norms = all_vecs.norm(dim=1)
     # Filter origin and too large vectors
-    mask = (norms > 1e-6) & (norms <= max_norm)
+    mask = (norms > 1e-8) & (norms <= max_norm)
     candidates = all_vecs[mask] / norms[mask].unsqueeze(1)
 
     # Remove duplicates (numerically stable unique)
     # rounding to 5 decimal places to handle float errors
-    candidates = torch.unique(torch.round(candidates * 10000) / 10000, dim=0)
-
-    return candidates
+    return torch.unique(torch.round(candidates * 10_000) / 10_000, dim=0)
