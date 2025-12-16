@@ -20,9 +20,7 @@ from pcdvq.filters import qwen3_pcdvq_filter
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-### init quantizer
-codebook = PCDVQCodebook()
-codebook.load("codebook.pt")
+
 
 ### parse arguments
 parser = argparse.ArgumentParser()
@@ -40,8 +38,12 @@ parser.add_argument("--batch_size", type=int, default=8, help="batch size")
 parser.add_argument("--device", type=str, default="cuda", help="device")
 parser.add_argument("--chunk_size", type=int, default=1024, help="chunk size for PCDVQ quantization over codebook entries")
 parser.add_argument("--phi_chunk_size", type=int, default=262144, help="chunk size for PCDVQ quantization over phi rows")
+parser.add_argument("--codebook_path", type=str, default="codebook.pt", help="codebook path")
 args = parser.parse_args()
 
+### init quantizer
+codebook = PCDVQCodebook()
+codebook.load("codebook.pt")
 
 ### init tokenizer and model
 dtype = torch.float16
