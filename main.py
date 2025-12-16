@@ -38,7 +38,7 @@ parser.add_argument("--batch_size", type=int, default=8, help="batch size")
 parser.add_argument("--device", type=str, default="cuda", help="device")
 parser.add_argument("--chunk_size", type=int, default=1024, help="chunk size for PCDVQ quantization over codebook entries")
 parser.add_argument("--phi_chunk_size", type=int, default=262144, help="chunk size for PCDVQ quantization over phi rows")
-parser.add_argument("--codebook_path", type=str, default="codebook.pt", help="codebook path")
+parser.add_argument("--codebook_path", type=str, default="./codebooks/codebook_e8p_14_2.pt", help="codebook path")
 args = parser.parse_args()
 
 ### init quantizer
