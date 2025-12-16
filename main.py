@@ -43,7 +43,7 @@ args = parser.parse_args()
 
 ### init quantizer
 codebook = PCDVQCodebook()
-codebook.load("codebook.pt")
+codebook.load(args.codebook_path)
 
 ### init tokenizer and model
 dtype = torch.float16
