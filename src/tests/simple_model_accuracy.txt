@@ -1,0 +1,12 @@
+Initial Accuracy: 0.8637833333333333
+Accuracy with e8p_8_2.pt: 0.7793833333333333
+Accuracy with e8_8_2.pt: 0.8262833333333334
+Accuracy with e8p_10_2.pt: 0.7962833333333333
+Accuracy with e8_10_2.pt: 0.8382666666666667
+Accuracy with e8p_12_2.pt: 0.8177333333333333
+Accuracy with e8_12_2.pt: 0.8490166666666666
+Accuracy with e8p_14_2.pt: 0.84685
+Accuracy with e8_14_2.pt: 0.85315
+Accuracy with e8p_16_2.pt: 0.8549666666666667
+Accuracy with e8_16_2.pt: 0.8554666666666667
+

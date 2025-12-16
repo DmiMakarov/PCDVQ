@@ -1,7 +1,11 @@
 from .lattice import generate_e8_candidates
 from .optimization import *
 from ..utils import to_polar
+from .e8p_lattice import construct_direction_codebook
 
+from logging import getLogger
+
+logger = getLogger(__name__)
 
 class PCDVQCodebook:
     def __init__(self, k: int=8, direction_bits: int=14, magnitude_bits: int=2):
@@ -9,18 +13,23 @@ class PCDVQCodebook:
         self.directions = None
         self.magnitudes = None
 
-    def build(self):
+    def build(self, use_38p: bool = False):
         """Run the optimization pipeline."""
-        print("Generating E8 candidates...")
+        if use_38p:
+            candidates = construct_direction_codebook()
+            selected_vectors = optimize_direction_codebook(candidates, self.dir_bits)
+            self.directions, _ = to_polar(selected_vectors)
+        else:
+            logger.info("Generating E8 candidates...")
         # Increase max_norm if you need more candidates for higher bits
-        candidates = generate_e8_candidates(max_norm=4.0)
-        print(f"Pool size: {len(candidates)}")
+            candidates = generate_e8_candidates(max_norm=4.0)
+            logger.info(f"Pool size: {len(candidates)}")
 
-        print("Optimizing Directions (Greedy)...")
-        selected_vectors = optimize_direction_codebook(candidates, self.dir_bits)
-        self.directions, _ = to_polar(selected_vectors) 
+            logger.info("Optimizing Directions (Greedy)...")
+            selected_vectors = optimize_direction_codebook(candidates, self.dir_bits)
+            self.directions, _ = to_polar(selected_vectors)
 
-        print("Optimizing Magnitudes (Lloyd-Max)...")
+        logger.info("Optimizing Magnitudes (Lloyd-Max)...")
         self.magnitudes = optimize_magnitude_codebook(self.k, self.mag_bits)
 
     def save(self, path):
@@ -34,3 +43,4 @@ class PCDVQCodebook:
         self.directions = self.directions.to(device)
         self.magnitudes = self.magnitudes.to(device)
         return self
+

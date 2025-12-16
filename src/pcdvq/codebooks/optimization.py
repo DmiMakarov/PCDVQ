@@ -12,12 +12,15 @@ def optimize_direction_codebook(candidates: torch.Tensor, n_bits: int = 14, devi
     if len(candidates) < n_target:
         raise ValueError(f"Not enough candidates ({len(candidates)}) for {n_bits} bits.")
 
+    if n_target == len(candidates):
+        return candidates.to(device)
+
     pool = candidates.to(device)
-    
+
     # 1. Start with the first vector (arbitrary choice)
     selected_indices = [0]
-    
-    # 2. Initialize max_sims: 
+
+    # 2. Initialize max_sims:
     # Stores max(dot(candidate, selected)) for every candidate.
     # We want to pick the candidate where this value is MINIMIZED (furthest away).
     max_sims = pool @ pool[0]
@@ -28,11 +31,11 @@ def optimize_direction_codebook(candidates: torch.Tensor, n_bits: int = 14, devi
     for _ in tqdm(range(1, n_target), desc="Greedy Selection"):
         best_idx = torch.argmin(max_sims).item()
         selected_indices.append(best_idx)
-        
+
         new_sims = pool @ pool[best_idx]
-        
+
         torch.maximum(max_sims, new_sims, out=max_sims)
-        
+
         max_sims[best_idx] = float('inf')
 
     return candidates[selected_indices].cpu()
