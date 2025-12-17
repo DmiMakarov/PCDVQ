@@ -1,3 +1,6 @@
+import sys
+sys.path.append('./src')
+
 from pcdvq.codebooks import PCDVQCodebook
 from pcdvq.quantizer import Quantizer, quantize_linear_inplace, quantize_linear_svd_inplace
 from pcdvq.normalization import RandomizedHadamard, QRRotation

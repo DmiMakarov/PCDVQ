@@ -146,6 +146,7 @@ class Quantizer:
             return weights
 
         max_rank = min(U.shape[1], Vh.shape[0])
+        logger.info(f"Max rank = {max_rank}")
         r = min(rank, max_rank)
         if r <= 0:
             logger.warning("Requested SVD rank <= 0; skipping factor quantization.")
