@@ -1,5 +1,6 @@
 from pcdvq.codebooks import PCDVQCodebook
 from pcdvq.quantizer import Quantizer, quantize_linear_inplace
+from pcdvq.normalization import RandomizedHadamard, QRRotation
 from pcdvq.utils import get_linear_layers
 
 import argparse
@@ -38,7 +39,7 @@ parser.add_argument("--batch_size", type=int, default=8, help="batch size")
 parser.add_argument("--device", type=str, default="cuda", help="device")
 parser.add_argument("--chunk_size", type=int, default=1024, help="chunk size for PCDVQ quantization over codebook entries")
 parser.add_argument("--phi_chunk_size", type=int, default=262144, help="chunk size for PCDVQ quantization over phi rows")
-parser.add_argument("--codebook_path", type=str, default="./codebooks/codebook_e8p_14_2.pt", help="codebook path")
+parser.add_argument("--codebook_path", type=str, default="./codebooks/codebook_e8_14_2.pt", help="codebook path")
 args = parser.parse_args()
 
 ### init quantizer
@@ -70,7 +71,7 @@ number_of_linear = len(get_linear_layers(model))
 
 logger.info(f"Number of quantizable linear layers: {number_of_quantizable_linear}/{number_of_linear}")
 
-quantizer = Quantizer(codebook, codebook_chunk_size=args.chunk_size, phi_chunk_size=args.phi_chunk_size)
+quantizer = Quantizer(codebook, QRRotation, codebook_chunk_size=args.chunk_size, phi_chunk_size=args.phi_chunk_size)
 save_path = args.model_name
 ### optionally quantize
 if args.quantize_with_pcdvq:

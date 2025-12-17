@@ -13,6 +13,14 @@ class StandardRegularization(ABC):
     Subclasses should implement `forward(x)` which takes a tensor and returns
     a transformed tensor of the same shape (unless otherwise documented).
     """
+    def __init__(
+        self,
+        p: int,
+        seed: int = 42,
+        device: torch.device = None,
+        dtype: torch.dtype = torch.float32,
+    ) -> None: 
+        pass
 
     @abstractmethod
     def forward(self, x: Tensor) -> Tensor:
@@ -127,3 +135,83 @@ class RandomizedHadamard(StandardRegularization):
         x_padded = x_padded / self.signs.view(1, -1)
         # remove padding if original length < n
         return x_padded[:, : self.p]
+
+
+class QRRotation(StandardRegularization):
+    """
+    Applies a random orthogonal rotation using a matrix Q derived from 
+    QR decomposition of a random Gaussian matrix.
+    """
+
+    def __init__(
+        self,
+        p: int,
+        seed: int = 42,
+        device: torch.device = None,
+        dtype: torch.dtype = torch.float32,
+    ) -> None:
+        self.p, self.dtype, self.device = p, dtype, device
+        self.eps = torch.finfo(dtype).eps
+
+        # Generator for reproducibility
+        g = torch.Generator(device=device)
+        if seed is not None:
+            g.manual_seed(seed)
+
+        # 1. Determine dimension 'n' 
+        # We mimic the RHT logic: pad to next power of 2 to ensure 
+        # downstream compatibility with block-based VQ.
+        self.n = 1 << (p - 1).bit_length()
+
+        # 2. Generate Random Orthogonal Matrix Q via QR Decomposition
+        # Step A: Generate random Gaussian matrix A ~ N(0, 1)
+        A = torch.randn(self.n, self.n, generator=g, device=device, dtype=dtype)
+        
+        # Step B: Compute QR decomposition (Topic 15)
+        # Q is orthogonal, R is upper triangular. We only need Q.
+        Q, _ = torch.linalg.qr(A)
+        
+        # Register Q as a buffer so it moves with the model (to GPU) 
+        # and is saved in state_dict, but is not a learnable parameter.
+        self.register_buffer('Q', Q)
+
+    def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
+        """
+        Apply random rotation Q to x.
+        Formula: y = (x @ Q.T) / s
+        """
+        k = x.shape[1]
+        
+        # 1. Pad columns to next power of two (matching RHT behavior)
+        if k < self.n:
+            x = F.pad(x, (0, self.n - k))
+            
+        # 2. Calculate scaling factor for standard Gaussian distribution
+        # We divide by sqrt(n) to standardize the variance
+        s = (torch.linalg.vector_norm(x, dim=1).clamp_min(self.eps) / sqrt(self.n)).unsqueeze(1)
+        
+        # 3. Apply Orthogonal Rotation (Topic 2: Matrix Mult)
+        # x is (Batch, n), Q is (n, n). 
+        # We want y = x @ Q.T (equivalent to Q @ x.T in column-vector notation)
+        y = x @ self.Q.t()
+        
+        return y / s, s
+
+    def reverse(self, z: Tensor, s: Tensor) -> Tensor:
+        """
+        Inverse of the QR rotation.
+        Since Q is orthogonal, Q^-1 = Q.T.
+        """
+        # 1. Restore magnitude
+        y = z * s
+        
+        # 2. Apply Inverse Rotation
+        # Inverse of (x @ Q.T) is (y @ Q)
+        x_padded = y @ self.Q
+        
+        # 3. Remove padding to return to original dimension p
+        return x_padded[:, : self.p]
+    
+    # Helper for buffer registration if not inheriting from nn.Module
+    def register_buffer(self, name, tensor):
+        setattr(self, name, tensor)

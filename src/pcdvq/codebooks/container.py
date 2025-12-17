@@ -13,11 +13,14 @@ class PCDVQCodebook:
         self.k, self.dir_bits, self.mag_bits = k, direction_bits, magnitude_bits
         self.phis, self.magnitudes, self.directions = None, None, None
 
-    def build(self, use_e8p: bool = True):
+    def build(self, use_e8p: bool = False):
         """Run the optimization pipeline."""
-        # Increase max_norm if you need more candidates for higher bits
-        candidates = generate_e8p_candidates() if use_e8p else generate_e8_candidates(max_norm=4.0)
-        
+
+        candidates = (
+            generate_e8p_candidates()
+            if use_e8p
+            else generate_e8_candidates()
+        )
         logger.info(f"Pool size: {len(candidates)}")
 
         logger.info("Optimizing Directions (Greedy)...")
@@ -28,8 +31,6 @@ class PCDVQCodebook:
 
         logger.info("Optimizing Magnitudes (Lloyd-Max)...")
         self.magnitudes = optimize_magnitude_codebook(self.k, self.mag_bits)
-
-
 
     def save(self, path):
         torch.save({"phi": self.phis, "m": self.magnitudes, "d": self.directions}, path)

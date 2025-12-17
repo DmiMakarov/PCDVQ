@@ -4,7 +4,7 @@ from torch import Tensor
 
 from .nearest import find_nearest
 from .codebooks import PCDVQCodebook
-from .normalization import RandomizedHadamard
+from .normalization import StandardRegularization, RandomizedHadamard
 from .utils import *
 from collections.abc import Callable
 from tqdm.auto import tqdm
@@ -15,9 +15,15 @@ logger = logging.getLogger(__name__)
 
 class Quantizer:
     def __init__(
-        self, codebook: PCDVQCodebook, codebook_chunk_size: int = 1024, phi_chunk_size: int = 1024, device=default_device
+        self,
+        codebook: PCDVQCodebook,
+        regularizer_cls: type[StandardRegularization] = RandomizedHadamard,
+        codebook_chunk_size: int = 1024,
+        phi_chunk_size: int = 1024,
+        device=default_device,
     ):
         self.k, self.device = codebook.k, device
+        self.regularizer_cls = regularizer_cls
         self.batch_size, self.phi_batch_size = codebook_chunk_size, phi_chunk_size
         self.codebook = codebook.to(device)
 
@@ -52,12 +58,12 @@ class Quantizer:
 
         self._log_stats(w)
 
-        randomized_hadamard = RandomizedHadamard(cols, device=self.device)
+        randomized_hadamard = self.regularizer_cls(cols, device=self.device)
         w_norm, scale = randomized_hadamard(w)
 
         w_blocks = self._to_blocks(w_norm)
 
-        magnitudes = w_blocks.norm(dim=1, keepdim=True) # (N, 1)
+        magnitudes = w_blocks.norm(dim=1, keepdim=True)  # (N, 1)
 
         ## Handle direction
         target_dirs = w_blocks / (magnitudes + 1e-8)

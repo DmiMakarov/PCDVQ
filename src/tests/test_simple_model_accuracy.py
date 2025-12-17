@@ -7,9 +7,10 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from tqdm.auto import tqdm
 
-from src.pcdvq.codebooks import PCDVQCodebook
-from src.pcdvq.utils import default_device, random_seed
-from src.pcdvq.quantizer import Quantizer, quantize_linear_inplace
+from pcdvq.codebooks import PCDVQCodebook
+from pcdvq.normalization import QRRotation
+from pcdvq.utils import default_device, random_seed
+from pcdvq.quantizer import Quantizer, quantize_linear_inplace
 
 
 def calc_acc(mdl, dl):
@@ -69,7 +70,7 @@ if __name__ == "__main__":
     for codebook_name in codebooks:
         codebook = PCDVQCodebook()
         codebook.load(f"{path}{codebook_name}")
-        quantizer = Quantizer(codebook)
+        quantizer = Quantizer(codebook, QRRotation)
         quantize_linear_inplace(model, quantizer)
         accuracies[codebook_name] = calc_acc(model, dl)
         model.load_state_dict(original_state)
