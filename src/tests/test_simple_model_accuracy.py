@@ -7,9 +7,9 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from tqdm.auto import tqdm
 
-from pcdvq.codebooks import PCDVQCodebook
-from pcdvq.utils import default_device, random_seed
-from pcdvq.quantizer import Quantizer, quantize_linear_inplace
+from src.pcdvq.codebooks import PCDVQCodebook
+from src.pcdvq.utils import default_device, random_seed
+from src.pcdvq.quantizer import Quantizer, quantize_linear_inplace
 
 
 def calc_acc(mdl, dl):
