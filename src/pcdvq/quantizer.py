@@ -170,6 +170,19 @@ class Quantizer:
             tensor_label="V",
         )
 
+        # Check orthogonality drift (after undoing sqrt(S) scaling)
+        eps = 1e-8
+        inv_s = 1.0 / (sqrt_s + eps)
+        U_unit = U_q * inv_s
+        V_unit = V_q * inv_s.unsqueeze(1)
+
+        eye = torch.eye(r, device=self.device)
+        gram_u = U_unit.t() @ U_unit
+        gram_v = V_unit @ V_unit.t()
+        err_u = (gram_u - eye).abs().max().item()
+        err_v = (gram_v - eye).abs().max().item()
+        logger.info(f"SVD factor orthogonality drift |U^T U - I|_max={err_u:.4e}, |V V^T - I|_max={err_v:.4e}")
+
         w_q = U_q @ V_q
         return w_q.to(dtype=orig_dtype, device=orig_device)
 
