@@ -1,5 +1,5 @@
 from pcdvq.codebooks import PCDVQCodebook
-from pcdvq.quantizer import Quantizer, quantize_linear_inplace
+from pcdvq.quantizer import Quantizer, quantize_linear_inplace, quantize_linear_svd_inplace
 from pcdvq.normalization import RandomizedHadamard, QRRotation
 from pcdvq.utils import get_linear_layers
 
@@ -47,6 +47,12 @@ parser.add_argument(
     default="qr",
     choices=["hadamard", "qr"],
     help="Type of unitary rotation: 'hadamard' (standard) or 'qr' (random orthogonal).",
+)
+parser.add_argument(
+    "--svd_factorize_rank",
+    type=int,
+    default=0,
+    help="If >0, decompose linear weights with SVD rank-k and quantize U/V with PCDVQ instead of direct weight quantization.",
 )
 
 args = parser.parse_args()
@@ -96,12 +102,21 @@ quantizer = Quantizer(codebook,
 save_path = args.model_name
 ### optionally quantize
 if args.quantize_with_pcdvq:
-    logger.info("Quantizing linear layers with PCDVQ...")
-    quantize_linear_inplace(
-        model,
-        quantizer=quantizer,
-        filter_fn=qwen3_pcdvq_filter,
-    )
+    if args.svd_factorize_rank > 0:
+        logger.info(f"Quantizing linear layers via SVD factors (rank={args.svd_factorize_rank}) + PCDVQ...")
+        quantize_linear_svd_inplace(
+            model,
+            quantizer=quantizer,
+            rank=args.svd_factorize_rank,
+            filter_fn=qwen3_pcdvq_filter,
+        )
+    else:
+        logger.info("Quantizing linear layers with PCDVQ...")
+        quantize_linear_inplace(
+            model,
+            quantizer=quantizer,
+            filter_fn=qwen3_pcdvq_filter,
+        )
     logger.info("Quantization done.")
 
     if args.save_path is None:

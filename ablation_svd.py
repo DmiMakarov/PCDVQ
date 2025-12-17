@@ -8,7 +8,7 @@ from lm_eval.tasks import TaskManager
 from lm_eval.utils import make_table
 
 from pcdvq.codebooks import PCDVQCodebook
-from pcdvq.quantizer import Quantizer, quantize_linear_inplace
+from pcdvq.quantizer import Quantizer, quantize_linear_inplace, quantize_linear_svd_inplace
 from pcdvq.normalization import QRRotation
 from pcdvq.baseline import apply_baseline
 from pcdvq.filters import qwen3_pcdvq_filter
@@ -45,7 +45,7 @@ def calculate_exact_bpw(model, pcdvq_bits=16, pcdvq_vec_dim=8, svd_rank=0):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name", type=str, default="Qwen/Qwen3-0.6B")
-    parser.add_argument("--mode", type=str, choices=["pcdvq_svd", "pure_svd", "rtn_svd"], required=True)
+    parser.add_argument("--mode", type=str, choices=["pcdvq_svd", "pcdvq_svd_factors", "pure_svd", "rtn_svd"], required=True)
     parser.add_argument("--svd_rank", type=int, default=32, help="Rank for PCDVQ+SVD")
     parser.add_argument("--codebook_path", type=str, default="./codebooks/codebook_e8_14_2.pt")
     args = parser.parse_args()
@@ -75,6 +75,13 @@ def main():
         # Use QR Rotation (Strategy 2) as it's likely better
         quantizer = Quantizer(codebook, regularizer_cls=QRRotation, svd_rank=args.svd_rank)
         quantize_linear_inplace(model, quantizer, filter_fn=qwen3_pcdvq_filter)
+
+    elif args.mode == "pcdvq_svd_factors":
+        logger.info(f"Running SVD factorization (Rank {args.svd_rank}) with PCDVQ on U/V...")
+        codebook = PCDVQCodebook()
+        codebook.load(args.codebook_path)
+        quantizer = Quantizer(codebook, regularizer_cls=QRRotation, svd_rank=0)
+        quantize_linear_svd_inplace(model, quantizer, rank=args.svd_rank, filter_fn=qwen3_pcdvq_filter)
 
     elif args.mode == "pure_svd":
         logger.info(f"Running Pure SVD (Low Rank Approximation) at {effective_bpw:.4f} BPW...")
