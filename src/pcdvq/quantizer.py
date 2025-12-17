@@ -151,39 +151,35 @@ class Quantizer:
             logger.warning("Requested SVD rank <= 0; skipping factor quantization.")
             return weights
 
-        sqrt_s = torch.sqrt(S[:r])
-        U_scaled = U[:, :r] * sqrt_s
-        V_scaled = Vh[:r, :] * sqrt_s.unsqueeze(1)
+        S_k = S[:r]
+        U_k = U[:, :r]
+        V_k = Vh[:r, :]
 
         U_q = self._quantize_tensor(
-            U_scaled,
+            U_k,
             chunk_size=chunk_size,
             phi_chunk_size=phi_chunk_size,
             apply_svd_correction=False,
             tensor_label="U",
         )
         V_q = self._quantize_tensor(
-            V_scaled,
+            V_k,
             chunk_size=chunk_size,
             phi_chunk_size=phi_chunk_size,
             apply_svd_correction=False,
             tensor_label="V",
         )
 
-        # Check orthogonality drift (after undoing sqrt(S) scaling)
-        eps = 1e-8
-        inv_s = 1.0 / (sqrt_s + eps)
-        U_unit = U_q * inv_s
-        V_unit = V_q * inv_s.unsqueeze(1)
-
+        # Check orthogonality drift
         eye = torch.eye(r, device=self.device)
-        gram_u = U_unit.t() @ U_unit
-        gram_v = V_unit @ V_unit.t()
+        gram_u = U_q.t() @ U_q
+        gram_v = V_q @ V_q.t()
         err_u = (gram_u - eye).abs().max().item()
         err_v = (gram_v - eye).abs().max().item()
         logger.info(f"SVD factor orthogonality drift |U^T U - I|_max={err_u:.4e}, |V V^T - I|_max={err_v:.4e}")
 
-        w_q = U_q @ V_q
+        s_diag = torch.diag(S_k)
+        w_q = U_q @ s_diag @ V_q
         return w_q.to(dtype=orig_dtype, device=orig_device)
 
 
