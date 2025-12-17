@@ -20,8 +20,10 @@ class Quantizer:
         regularizer_cls: type[StandardRegularization] = RandomizedHadamard,
         codebook_chunk_size: int = 1024,
         phi_chunk_size: int = 1024,
+        svd_rank: int = 0,
         device=default_device,
     ):
+        self.svd_rank = svd_rank
         self.k, self.device = codebook.k, device
         self.regularizer_cls = regularizer_cls
         self.batch_size, self.phi_batch_size = codebook_chunk_size, phi_chunk_size
@@ -86,7 +88,33 @@ class Quantizer:
 
         w_q_norm = self._from_blocks(w_q_blocks, w_norm.shape)
         w_q = randomized_hadamard.reverse(w_q_norm, scale)
+        
+        if self.svd_rank > 0:
+                    logger.info(f"Applying SVD correction with rank {self.svd_rank}...")
+                    # Calculate Residual (Error matrix)
+                    residual = w - w_q
+                    
+                    # Compute SVD (Topic 6)
+                    # Use 'full_matrices=False' for economy SVD
+                    try:
+                        # torch.linalg.svd is standard, but svd_lowrank might be faster for very small k
+                        # stick to standard for robustness on 0.6B model
+                        U, S, Vh = torch.linalg.svd(residual, full_matrices=False)
+                        
+                        # Construct low-rank approximation of the error
+                        # C = U_k * Sigma_k * V_k^T
+                        U_k = U[:, :self.svd_rank]
+                        S_k = torch.diag(S[:self.svd_rank])
+                        Vh_k = Vh[:self.svd_rank, :]
+                        
+                        correction = U_k @ S_k @ Vh_k
+                        
+                        # Update quantized weights
+                        w_q = w_q + correction
+                    except Exception as e:
+                        logger.error(f"SVD Correction failed: {e}")
 
+        
         self._log_stats(w_q, "Quantized")
 
         return w_q.to(dtype=orig_dtype, device=orig_device)

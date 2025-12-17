@@ -22,7 +22,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-
 ### parse arguments
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_name", type=str, default="Qwen/Qwen3-0.6B", help="model id")
@@ -40,6 +39,16 @@ parser.add_argument("--device", type=str, default="cuda", help="device")
 parser.add_argument("--chunk_size", type=int, default=1024, help="chunk size for PCDVQ quantization over codebook entries")
 parser.add_argument("--phi_chunk_size", type=int, default=262144, help="chunk size for PCDVQ quantization over phi rows")
 parser.add_argument("--codebook_path", type=str, default="./codebooks/codebook_e8_14_2.pt", help="codebook path")
+
+parser.add_argument("--svd_rank", type=int, default=0, help="Rank for SVD residual correction (Eckart-Young). 0 to disable.")
+parser.add_argument(
+    "--rotation_type",
+    type=str,
+    default="qr",
+    choices=["hadamard", "qr"],
+    help="Type of unitary rotation: 'hadamard' (standard) or 'qr' (random orthogonal).",
+)
+
 args = parser.parse_args()
 
 ### init quantizer
@@ -71,7 +80,19 @@ number_of_linear = len(get_linear_layers(model))
 
 logger.info(f"Number of quantizable linear layers: {number_of_quantizable_linear}/{number_of_linear}")
 
-quantizer = Quantizer(codebook, QRRotation, codebook_chunk_size=args.chunk_size, phi_chunk_size=args.phi_chunk_size)
+if args.rotation_type == "qr":
+    logger.info("Using QR-based Random Orthogonal Rotation (Strategy 2)")
+    rot_cls = QRRotation
+else:
+    logger.info("Using Randomized Hadamard Transform")
+    rot_cls = RandomizedHadamard
+
+quantizer = Quantizer(codebook, 
+                      regularizer_cls=rot_cls, 
+                      codebook_chunk_size=args.chunk_size, 
+                      phi_chunk_size=args.phi_chunk_size,
+                      svd_rank=args.svd_rank)
+
 save_path = args.model_name
 ### optionally quantize
 if args.quantize_with_pcdvq:
@@ -88,6 +109,12 @@ if args.quantize_with_pcdvq:
         model_dir = Path("quant_models", args.model_name)
         save_path = project_path / model_dir
         save_path.mkdir(parents=True, exist_ok=True)
+    model.save_pretrained(
+        save_path,
+        safe_serialization=True,
+        max_shard_size="2GB",
+    )
+    
 
 ### init dataset and evaluate
 dataset = load_dataset(args.dataset_name, args.dataset_config, split=args.split)

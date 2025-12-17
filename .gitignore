@@ -1,3 +1,5 @@
+models
+quant_models
 data/
 .venv
 __pycache__
